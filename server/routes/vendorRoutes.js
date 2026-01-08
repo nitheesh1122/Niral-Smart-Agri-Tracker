@@ -152,7 +152,7 @@ router.post('/add-vehicle', async (req, res) => {
 router.get('/exports', async (req, res) => {
   try {
     const { vendorId } = req.query;
-    
+
     if (!vendorId) {
       return res.status(400).json({ error: 'Vendor ID is required' });
     }
@@ -227,7 +227,7 @@ router.post('/export/add/:vendorId', async (req, res) => {
     } = req.body;
 
     if (!itemName || !startDate || !endDate || !quantity || !costPrice ||
-        !salePrice || !driver || !vehicle || !salary || !startLocation || !endLocation) {
+      !salePrice || !driver || !vehicle || !salary || !startLocation || !endLocation) {
       return res.status(400).json({ error: 'All fields are required' });
     }
 
@@ -245,7 +245,7 @@ router.post('/export/add/:vendorId', async (req, res) => {
     if (conflict.length > 0) {
       return res.status(400).json({ error: 'Driver or vehicle is not available for selected dates' });
     }
-    console.log(vendorId,"This is the vendor id at vendor routes line 248")
+    console.log(vendorId, "This is the vendor id at vendor routes line 248")
     const newExport = new Export({
       vendorId,
       itemName,
@@ -292,7 +292,7 @@ router.post('/export/add/:vendorId', async (req, res) => {
 router.get('/export/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const exportData = await Export.findById(id)
       .populate('driver', 'name email mobileNo')
       .populate('vehicle', 'vehicleNumber model brand capacity');
@@ -338,9 +338,9 @@ router.put('/export/:id', async (req, res) => {
 router.delete('/export/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const exportData = await Export.findById(id);
-    
+
     if (!exportData) {
       return res.status(404).json({ error: 'Export not found' });
     }
@@ -351,11 +351,11 @@ router.delete('/export/:id', async (req, res) => {
 
     // Remove work record from driver
     await Driver.findByIdAndUpdate(exportData.driver, {
-      $pull: { 
+      $pull: {
         work: { vendorId: exportData.vendorId },
-        workDates: { 
-          $gte: exportData.startDate, 
-          $lte: exportData.endDate 
+        workDates: {
+          $gte: exportData.startDate,
+          $lte: exportData.endDate
         }
       }
     });
@@ -379,9 +379,9 @@ router.get('/export/passedstatus/:vendorId', async (req, res) => {
       vendorId: vendorId,
       status: 'Started'
     })
-    .populate('driver', 'name mobileNo')       
-    .populate('vehicle')                       
-    .populate('vendorId', 'name mobileNo');    
+      .populate('driver', 'name mobileNo')
+      .populate('vehicle')
+      .populate('vendorId', 'name mobileNo');
 
     res.status(200).json(startedExports);
   } catch (error) {
@@ -391,7 +391,7 @@ router.get('/export/passedstatus/:vendorId', async (req, res) => {
 });
 
 
-// get sensor data for export
+// get sensor data for export with optional date filtering
 router.get('/device/sensor-data/:exportId', async (req, res) => {
   console.log('Fetching sensor data for export ID:', req.params.exportId);
   try {
@@ -402,10 +402,37 @@ router.get('/device/sensor-data/:exportId', async (req, res) => {
     if (!vehicle || !vehicle.deviceId)
       return res.status(404).json({ error: 'Associated vehicle or device not found' });
 
-    const device = await Device.findOne({deviceName : vehicle.deviceId});
+    const device = await Device.findOne({ deviceName: vehicle.deviceId });
     if (!device) return res.status(404).json({ error: 'Device not found' });
 
-    return res.json(device.deviceData); // ✅ Only sensor data
+    let sensorData = device.deviceData || [];
+
+    // Filter by date if provided
+    const { date, startDate, endDate } = req.query;
+
+    if (date) {
+      // Filter for specific date (YYYY-MM-DD format)
+      const targetDate = new Date(date);
+      const nextDate = new Date(targetDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+
+      sensorData = sensorData.filter(d => {
+        const timestamp = new Date(d.timestamp);
+        return timestamp >= targetDate && timestamp < nextDate;
+      });
+    } else if (startDate && endDate) {
+      // Filter for date range
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // Include entire end date
+
+      sensorData = sensorData.filter(d => {
+        const timestamp = new Date(d.timestamp);
+        return timestamp >= start && timestamp <= end;
+      });
+    }
+
+    return res.json(sensorData);
   } catch (err) {
     console.error('Sensor data fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch sensor data' });
@@ -488,5 +515,68 @@ router.get('/export/intermediateLocation/get/:exportId', async (req, res) => {
   }
 });
 
+// GET all exports for a vendor (with driver info)
+router.get('/exports/:vendorId', async (req, res) => {
+  try {
+    const exports = await Export.find({ vendorId: req.params.vendorId })
+      .populate('driver', 'name mobileNo')
+      .populate('vehicle', 'vehicleNumber')
+      .sort({ createdAt: -1 });
+    res.json(exports);
+  } catch (err) {
+    console.error('Error fetching vendor exports:', err);
+    res.status(500).json({ error: 'Failed to fetch exports' });
+  }
+});
+
+// Vendor starts an export (after driver accepts)
+router.put('/export/start/:exportId', async (req, res) => {
+  try {
+    const exp = await Export.findById(req.params.exportId);
+    if (!exp) return res.status(404).json({ error: 'Export not found' });
+
+    if (exp.driverResponse !== 'accepted') {
+      return res.status(400).json({ error: 'Driver must accept the export first' });
+    }
+
+    if (exp.status !== 'Pending') {
+      return res.status(400).json({ error: 'Export already started or completed' });
+    }
+
+    const updated = await Export.findByIdAndUpdate(
+      req.params.exportId,
+      { status: 'Started' },
+      { new: true }
+    ).populate('driver', 'name mobileNo');
+
+    res.json({ success: true, message: 'Export started', export: updated });
+  } catch (err) {
+    console.error('Vendor start export error:', err);
+    res.status(500).json({ error: 'Failed to start export' });
+  }
+});
+
+// Vendor completes an export
+router.put('/export/complete/:exportId', async (req, res) => {
+  try {
+    const exp = await Export.findById(req.params.exportId);
+    if (!exp) return res.status(404).json({ error: 'Export not found' });
+
+    if (exp.status !== 'Started') {
+      return res.status(400).json({ error: 'Export must be started before completing' });
+    }
+
+    const updated = await Export.findByIdAndUpdate(
+      req.params.exportId,
+      { status: 'Completed' },
+      { new: true }
+    ).populate('driver', 'name mobileNo');
+
+    res.json({ success: true, message: 'Export completed', export: updated });
+  } catch (err) {
+    console.error('Vendor complete export error:', err);
+    res.status(500).json({ error: 'Failed to complete export' });
+  }
+});
 
 module.exports = router;

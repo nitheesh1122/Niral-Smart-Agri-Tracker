@@ -1,15 +1,17 @@
 const mongoose = require('mongoose');
+require('dotenv').config();
 
 const connectDB = async () => {
   try {
-    await mongoose.connect(
-      'mongodb+srv://Tharunkumar:MTK%4012b28@freshgoods.7azz85x.mongodb.net/PERISENSE?retryWrites=true&w=majority&appName=FreshGoods',
-      {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-        maxPoolSize: 20, // 🔧 Connection pool size
-      }
-    );
+    const mongoUri = process.env.MONGODB_URI;
+
+    if (!mongoUri) {
+      throw new Error('MONGODB_URI environment variable is not defined');
+    }
+
+    await mongoose.connect(mongoUri, {
+      maxPoolSize: 20, // 🔧 Connection pool size
+    });
     console.log('✅ MongoDB Connected to PERISENSE Cluster');
   } catch (error) {
     console.error('❌ MongoDB connection failed:', error.message);

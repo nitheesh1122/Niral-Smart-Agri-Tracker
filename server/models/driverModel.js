@@ -33,12 +33,19 @@ const driverSchema = new mongoose.Schema({
   workDates: {
     type: [Date],
     default: []
-  }
+  },
+
+  // Push notification token
+  expoPushToken: { type: String, default: null }
 
 }, {
   timestamps: true,
   collection: 'Driver'
 });
+
+// Database indexes for faster queries
+driverSchema.index({ username: 1 });
+driverSchema.index({ email: 1 });
 
 // Hash password before saving
 driverSchema.pre('save', async function (next) {

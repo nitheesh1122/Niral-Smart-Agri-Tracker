@@ -8,17 +8,28 @@ const Device = require('../models/deviceModel');
 const Export = require('../models/ExportModel');
 
 router.get('/export/driver/:driverId', async (req, res) => {
-    try {
-        const exports = await Export.find({ driver: req.params.driverId })
-            .populate('vendorId', 'name mobileNo'); // ✅ populate from vendorId
+  try {
+    const exports = await Export.find({ driver: req.params.driverId })
+      .populate('vendorId', 'name mobileNo'); // ✅ populate from vendorId
 
-        res.json(exports);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Failed to fetch exports' });
-    }
+    res.json(exports);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch exports' });
+  }
 });
 
+// Get driver profile
+router.get('/profile/:driverId', async (req, res) => {
+  try {
+    const driver = await Driver.findById(req.params.driverId).select('-password');
+    if (!driver) return res.status(404).json({ error: 'Driver not found' });
+    res.json(driver);
+  } catch (err) {
+    console.error('Error fetching driver profile:', err);
+    res.status(500).json({ error: 'Failed to fetch driver profile' });
+  }
+});
 
 // backend route
 
@@ -100,7 +111,7 @@ async function getDistrictsBetween(start, end) {
 }
 
 router.put('/export/start/:id', async (req, res) => {
-    console.log('Starting export with ID:', req.params.id);
+  console.log('Starting export with ID:', req.params.id);
   try {
     const exp = await Export.findById(req.params.id);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
@@ -120,8 +131,86 @@ router.put('/export/start/:id', async (req, res) => {
   }
 });
 
+// Accept an export assignment
+router.put('/export/accept/:id', async (req, res) => {
+  try {
+    const exp = await Export.findById(req.params.id);
+    if (!exp) return res.status(404).json({ error: 'Export not found' });
 
-// GET /api/device/sensor-data/:exportId
+    if (exp.driverResponse === 'accepted') {
+      return res.status(400).json({ error: 'Export already accepted' });
+    }
+
+    const updated = await Export.findByIdAndUpdate(
+      req.params.id,
+      { driverResponse: 'accepted' },
+      { new: true }
+    ).populate('vendorId', 'name mobileNo');
+
+    res.json({ success: true, message: 'Export accepted', export: updated });
+  } catch (err) {
+    console.error('Accept export error:', err);
+    res.status(500).json({ error: 'Failed to accept export' });
+  }
+});
+
+// Reject an export assignment
+router.put('/export/reject/:id', async (req, res) => {
+  try {
+    const { reason } = req.body;
+
+    const exp = await Export.findById(req.params.id);
+    if (!exp) return res.status(404).json({ error: 'Export not found' });
+
+    if (exp.driverResponse === 'rejected') {
+      return res.status(400).json({ error: 'Export already rejected' });
+    }
+
+    const updated = await Export.findByIdAndUpdate(
+      req.params.id,
+      {
+        driverResponse: 'rejected',
+        rejectionReason: reason || 'No reason provided',
+        driver: null  // Unassign driver so vendor can reassign
+      },
+      { new: true }
+    );
+
+    res.json({ success: true, message: 'Export rejected', export: updated });
+  } catch (err) {
+    console.error('Reject export error:', err);
+    res.status(500).json({ error: 'Failed to reject export' });
+  }
+});
+
+// Complete an export
+router.put('/export/complete/:id', async (req, res) => {
+  try {
+    const exp = await Export.findById(req.params.id);
+    if (!exp) return res.status(404).json({ error: 'Export not found' });
+
+    if (exp.status === 'Completed') {
+      return res.status(400).json({ error: 'Export already completed' });
+    }
+
+    if (exp.status !== 'Started') {
+      return res.status(400).json({ error: 'Export must be started before completing' });
+    }
+
+    const updated = await Export.findByIdAndUpdate(
+      req.params.id,
+      { status: 'Completed' },
+      { new: true }
+    ).populate('vendorId', 'name mobileNo');
+
+    res.json({ success: true, message: 'Export completed', export: updated });
+  } catch (err) {
+    console.error('Complete export error:', err);
+    res.status(500).json({ error: 'Failed to complete export' });
+  }
+});
+
+// GET /api/device/sensor-data/:exportId - with date filtering
 router.get('/device/sensor-data/:exportId', async (req, res) => {
   console.log('Fetching sensor data for export ID:', req.params.exportId);
   try {
@@ -132,10 +221,35 @@ router.get('/device/sensor-data/:exportId', async (req, res) => {
     if (!vehicle || !vehicle.deviceId)
       return res.status(404).json({ error: 'Associated vehicle or device not found' });
 
-    const device = await Device.findOne({deviceName : vehicle.deviceId});
+    const device = await Device.findOne({ deviceName: vehicle.deviceId });
     if (!device) return res.status(404).json({ error: 'Device not found' });
 
-    return res.json(device.deviceData); // ✅ Only sensor data
+    let sensorData = device.deviceData || [];
+
+    // Filter by date if provided
+    const { date, startDate, endDate } = req.query;
+
+    if (date) {
+      const targetDate = new Date(date);
+      const nextDate = new Date(targetDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+
+      sensorData = sensorData.filter(d => {
+        const timestamp = new Date(d.timestamp);
+        return timestamp >= targetDate && timestamp < nextDate;
+      });
+    } else if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+
+      sensorData = sensorData.filter(d => {
+        const timestamp = new Date(d.timestamp);
+        return timestamp >= start && timestamp <= end;
+      });
+    }
+
+    return res.json(sensorData);
   } catch (err) {
     console.error('Sensor data fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch sensor data' });

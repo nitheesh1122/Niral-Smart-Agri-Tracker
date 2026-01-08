@@ -9,9 +9,15 @@ const customerSchema = new mongoose.Schema({
   password: { type: String, required: true },
   state: { type: String, required: true },
   district: { type: String, required: true },
-}, { timestamps: true,
-    collection: 'Customer',
- });
+  expoPushToken: { type: String, default: null },
+}, {
+  timestamps: true,
+  collection: 'Customer',
+});
+
+// Database indexes for faster queries
+customerSchema.index({ username: 1 });
+customerSchema.index({ email: 1 });
 
 // Only hash password if it's new or modified
 customerSchema.pre('save', async function (next) {

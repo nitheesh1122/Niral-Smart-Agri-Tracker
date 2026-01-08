@@ -15,12 +15,19 @@ const vendorSchema = new mongoose.Schema({
   drivers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Driver', default: [] }],
 
   // 🔹 New field: array of Vehicle ObjectIds
-  vehicles: [{ type: Number, ref: 'Vehicle', default: [] }]
-  
+  vehicles: [{ type: Number, ref: 'Vehicle', default: [] }],
+
+  // Push notification token
+  expoPushToken: { type: String, default: null }
+
 }, {
   timestamps: true,
   collection: 'Vendor'
 });
+
+// Database indexes for faster queries
+vendorSchema.index({ username: 1 });
+vendorSchema.index({ email: 1 });
 
 // Hash password before saving
 vendorSchema.pre('save', async function (next) {

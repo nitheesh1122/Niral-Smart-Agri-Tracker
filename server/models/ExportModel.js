@@ -6,7 +6,7 @@ const locationSchema = new mongoose.Schema({
 }, { _id: false });
 
 const exportSchema = new mongoose.Schema({
- vendorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', required: true },
+  vendorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', required: true },
   itemName: { type: String, required: true },
 
   startDate: { type: Date, required: true },
@@ -43,6 +43,19 @@ const exportSchema = new mongoose.Schema({
     default: 'Pending',
   },
 
+  // Driver's response to the assignment
+  driverResponse: {
+    type: String,
+    enum: ['pending', 'accepted', 'rejected'],
+    default: 'pending',
+  },
+
+  // Rejection reason (if rejected)
+  rejectionReason: {
+    type: String,
+    default: null,
+  },
+
   costPrice: { type: Number, required: true },
   salePrice: { type: Number, required: true },
 
@@ -50,6 +63,12 @@ const exportSchema = new mongoose.Schema({
   timestamps: true,
   collection: 'Export'
 });
+
+// Database indexes for faster queries
+exportSchema.index({ vendorId: 1, status: 1 });
+exportSchema.index({ startDate: 1, endDate: 1 });
+exportSchema.index({ driver: 1 });
+exportSchema.index({ vehicle: 1 });
 
 const Export = mongoose.model('Export', exportSchema);
 module.exports = Export;

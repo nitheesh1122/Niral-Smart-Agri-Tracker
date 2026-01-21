@@ -1,41 +1,226 @@
-// VendorHomePlaceHolder.js
-import React, { useEffect, useState } from 'react';
+/**
+ * VendorHomePlaceHolder.js
+ * Premium vendor dashboard with analytics and export management
+ */
+
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  Image,
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
+  RefreshControl,
+  ScrollView,
 } from 'react-native';
 import axios from 'axios';
+import { LinearGradient } from 'expo-linear-gradient';
 import { IPADD } from '../../ipadd';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  colors,
+  gradients,
+  spacing,
+  borderRadius,
+  typography,
+  shadows,
+  getStatusColor,
+  getStatusBgColor,
+} from '../../theme';
+import ThemedCard from '../../components/ThemedCard';
+import {
+  SlideInView,
+  FadeInView,
+  AnimatedCounter,
+  PulseView,
+} from '../../components/AnimatedComponents';
 import MonitorHealthView from './vendorHomeComponents/monitorHealthView';
 import ExportLocationView from './vendorHomeComponents/exportLocationView';
 
+// ═══════════════════════════════════════════════════════════════════
+// STAT CARD COMPONENT
+// ═══════════════════════════════════════════════════════════════════
+const StatCard = ({ icon, value, label, color, delay = 0 }) => (
+  <SlideInView delay={delay} style={styles.statCard}>
+    <View style={[styles.statIconBg, { backgroundColor: color + '15' }]}>
+      <Text style={styles.statIcon}>{icon}</Text>
+    </View>
+    <AnimatedCounter
+      value={value}
+      duration={1200}
+      style={[styles.statValue, { color }]}
+    />
+    <Text style={styles.statLabel}>{label}</Text>
+  </SlideInView>
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// EXPORT CARD COMPONENT
+// ═══════════════════════════════════════════════════════════════════
+const ExportCard = ({ item, onPress, onMonitor, onViewLocation, isExpanded }) => {
+  const statusColor = getStatusColor(item.status);
+  const statusBg = getStatusBgColor(item.status);
+
+  return (
+    <ThemedCard
+      variant="elevated"
+      style={styles.exportCard}
+      onPress={onPress}
+    >
+      {/* Header */}
+      <View style={styles.exportHeader}>
+        <View style={styles.exportTitleSection}>
+          <Text style={styles.exportTitle}>📦 {item.itemName}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+            <Text style={[styles.statusText, { color: statusColor }]}>
+              {item.status}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Summary Info */}
+      <View style={styles.summaryRow}>
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>Driver</Text>
+          <Text style={styles.summaryValue}>{item.driver?.name || 'N/A'}</Text>
+        </View>
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>Vehicle</Text>
+          <Text style={styles.summaryValue}>{item.vehicle?.vehicleNumber || 'N/A'}</Text>
+        </View>
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>Qty</Text>
+          <Text style={styles.summaryValue}>{item.quantity}</Text>
+        </View>
+      </View>
+
+      {/* Expanded Details */}
+      {isExpanded && (
+        <FadeInView style={styles.expandedSection}>
+          <View style={styles.detailsGrid}>
+            <View style={styles.detailItem}>
+              <Text style={styles.detailLabel}>📅 Start</Text>
+              <Text style={styles.detailValue}>
+                {new Date(item.startDate).toLocaleDateString()}
+              </Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Text style={styles.detailLabel}>🏁 End</Text>
+              <Text style={styles.detailValue}>
+                {new Date(item.endDate).toLocaleDateString()}
+              </Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Text style={styles.detailLabel}>💰 Cost</Text>
+              <Text style={styles.detailValue}>₹{item.costPrice}</Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Text style={styles.detailLabel}>💵 Sale</Text>
+              <Text style={styles.detailValue}>₹{item.salePrice}</Text>
+            </View>
+          </View>
+
+          {/* Route */}
+          <View style={styles.routeSection}>
+            <Text style={styles.routeTitle}>🛣️ Route</Text>
+            <View style={styles.routeList}>
+              {item.routes?.map((route, idx) => (
+                <View key={idx} style={styles.routeItem}>
+                  <View style={styles.routeDot} />
+                  <Text style={styles.routeText}>{route}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* Actions */}
+          <View style={styles.actionButtons}>
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: colors.primary + '15' }]}
+              onPress={onMonitor}
+            >
+              <Text style={styles.actionBtnIcon}>📊</Text>
+              <Text style={[styles.actionBtnText, { color: colors.primary }]}>
+                Monitor Health
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: colors.accent + '15' }]}
+              onPress={onViewLocation}
+            >
+              <Text style={styles.actionBtnIcon}>📍</Text>
+              <Text style={[styles.actionBtnText, { color: colors.accent }]}>
+                View Location
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </FadeInView>
+      )}
+
+      {/* Expand Indicator */}
+      <View style={styles.expandIndicator}>
+        <Text style={styles.expandIcon}>{isExpanded ? '▲' : '▼'}</Text>
+      </View>
+    </ThemedCard>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════════
 const VendorHomePlaceHolder = () => {
   const [exports, setExports] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [expandedIndex, setExpandedIndex] = useState(null);
   const [activeView, setActiveView] = useState('main');
   const [selectedExport, setSelectedExport] = useState(null);
+  const [vendorName, setVendorName] = useState('Vendor');
+  const [stats, setStats] = useState({
+    total: 0,
+    active: 0,
+    completed: 0,
+    revenue: 0,
+  });
+
+  const fetchExports = useCallback(async () => {
+    try {
+      const vendorId = await AsyncStorage.getItem('userId');
+      const name = await AsyncStorage.getItem('userName');
+      if (name) setVendorName(name);
+
+      const res = await axios.get(
+        `http://${IPADD}:5000/api/vendor/export/passedstatus/${vendorId}`
+      );
+      const exportData = res.data || [];
+      setExports(exportData);
+
+      // Calculate stats
+      setStats({
+        total: exportData.length,
+        active: exportData.filter((e) => e.status === 'Started').length,
+        completed: exportData.filter((e) => e.status === 'Completed').length,
+        revenue: exportData.reduce((sum, e) => sum + (e.salePrice || 0), 0),
+      });
+    } catch (error) {
+      console.error('Failed to fetch export data:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchExports = async () => {
-      try {
-        const vendorId = await AsyncStorage.getItem('userId');
-        const res = await axios.get(`http://${IPADD}:5000/api/vendor/export/passedstatus/${vendorId}`);
-        setExports(res.data);
-      } catch (error) {
-        console.error('Failed to fetch export data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchExports();
-  }, []);
+  }, [fetchExports]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchExports();
+  };
 
   const toggleExpand = (index) => {
     setExpandedIndex(expandedIndex === index ? null : index);
@@ -56,179 +241,380 @@ const VendorHomePlaceHolder = () => {
     setActiveView('main');
   };
 
-  const renderExportItem = ({ item, index }) => (
-    <TouchableOpacity style={styles.card} onPress={() => toggleExpand(index)}>
-      <Text style={styles.exportTitle}>📦 {item.itemName}</Text>
-      <Text>Status: <Text style={styles.highlight}>{item.status}</Text></Text>
-      <Text>Driver: {item.driver.name} ({item.driver.mobileNo})</Text>
-      <Text>Vehicle: {item.vehicle.vehicleNumber} - {item.vehicle.brand}</Text>
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good Morning';
+    if (hour < 17) return 'Good Afternoon';
+    return 'Good Evening';
+  };
 
-      {expandedIndex === index && (
-        <View style={styles.details}>
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>📇 Vendor</Text>
-            <Text>{item.vendorId.name} ({item.vendorId.mobileNo})</Text>
-          </View>
+  // Sub-views
+  if (activeView === 'monitor' && selectedExport) {
+    return <MonitorHealthView selectedExport={selectedExport} onBack={handleBack} />;
+  }
+  if (activeView === 'location' && selectedExport) {
+    return <ExportLocationView selectedExport={selectedExport} onBack={handleBack} />;
+  }
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>📅 Dates</Text>
-            <Text>Start: {new Date(item.startDate).toLocaleString()}</Text>
-            <Text>End: {new Date(item.endDate).toLocaleString()}</Text>
+  // Loading state
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <PulseView>
+          <View style={styles.loadingIcon}>
+            <Text style={styles.loadingEmoji}>🏪</Text>
           </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>📦 Export Details</Text>
-            <Text>Quantity: {item.quantity}</Text>
-            <Text>Cost Price: ₹{item.costPrice}</Text>
-            <Text>Sale Price: ₹{item.salePrice}</Text>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🗺️ Locations</Text>
-            <Text>Start: {item.startLocation.latitude}, {item.startLocation.longitude}</Text>
-            <Text>End: {item.endLocation.latitude}, {item.endLocation.longitude}</Text>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🛣️ Route</Text>
-            {item.routes.map((route, idx) => (
-              <Text key={idx} style={styles.routeText}>• {route}</Text>
-            ))}
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🆔 Export ID</Text>
-            <Text style={{ fontSize: 12, color: '#888' }}>{item._id}</Text>
-          </View>
-
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.actionButton} onPress={() => handleMonitorHealth(item)}>
-              <Text style={styles.actionText}>📊 Monitor Health</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton} onPress={() => handleViewLocation(item)}>
-              <Text style={styles.actionText}>📍 View Location</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-    </TouchableOpacity>
-  );
+        </PulseView>
+        <Text style={styles.loadingText}>Loading dashboard...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      {activeView === 'main' && (
-        <>
-          <Image
-            source={{ uri: 'https://cdn-icons-png.flaticon.com/512/2920/2920061.png' }}
-            style={styles.image}
-            resizeMode="contain"
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
           />
-          <Text style={styles.title}>Welcome to Vendor Dashboard</Text>
-          <Text style={styles.subtitle}>Tap on an export to view all details.</Text>
+        }
+      >
+        {/* Welcome Header */}
+        <FadeInView>
+          <LinearGradient
+            colors={gradients.forest}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.header}
+          >
+            <Text style={styles.greeting}>{getGreeting()}</Text>
+            <Text style={styles.welcomeName}>{vendorName} 👋</Text>
+            <Text style={styles.headerSubtext}>Here's your business overview</Text>
+          </LinearGradient>
+        </FadeInView>
 
-          {loading ? (
-            <ActivityIndicator size="large" color="#007AFF" style={{ marginTop: 30 }} />
+        {/* Stats Grid */}
+        <View style={styles.statsGrid}>
+          <StatCard
+            icon="📦"
+            value={stats.total}
+            label="Total Exports"
+            color={colors.primary}
+            delay={0}
+          />
+          <StatCard
+            icon="🚚"
+            value={stats.active}
+            label="Active"
+            color={colors.tertiary}
+            delay={100}
+          />
+          <StatCard
+            icon="✅"
+            value={stats.completed}
+            label="Completed"
+            color={colors.success}
+            delay={200}
+          />
+          <StatCard
+            icon="💰"
+            value={stats.revenue}
+            label="Revenue"
+            color={colors.accent}
+            delay={300}
+          />
+        </View>
+
+        {/* Exports List */}
+        <View style={styles.exportsSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>📊 Active Exports</Text>
+            <Text style={styles.exportCount}>{exports.length} total</Text>
+          </View>
+
+          {exports.length === 0 ? (
+            <FadeInView>
+              <ThemedCard variant="outlined" style={styles.emptyCard}>
+                <Text style={styles.emptyIcon}>📭</Text>
+                <Text style={styles.emptyTitle}>No Exports</Text>
+                <Text style={styles.emptySubtext}>
+                  Create a new export to get started
+                </Text>
+              </ThemedCard>
+            </FadeInView>
           ) : (
-            <FlatList
-              data={exports}
-              renderItem={renderExportItem}
-              keyExtractor={(item) => item._id}
-              contentContainerStyle={{ paddingBottom: 100 }}
-            />
+            exports.map((item, index) => (
+              <SlideInView key={item._id} delay={index * 80}>
+                <ExportCard
+                  item={item}
+                  isExpanded={expandedIndex === index}
+                  onPress={() => toggleExpand(index)}
+                  onMonitor={() => handleMonitorHealth(item)}
+                  onViewLocation={() => handleViewLocation(item)}
+                />
+              </SlideInView>
+            ))
           )}
-        </>
-      )}
+        </View>
 
-      {activeView === 'monitor' && selectedExport && (
-        <MonitorHealthView selectedExport={selectedExport} onBack={handleBack} />
-      )}
-      {activeView === 'location' && selectedExport && (
-        <ExportLocationView selectedExport={selectedExport} onBack={handleBack} />
-      )}
+        <View style={styles.bottomPadding} />
+      </ScrollView>
     </View>
   );
 };
 
-export default VendorHomePlaceHolder;
-
+// ═══════════════════════════════════════════════════════════════════
+// STYLES
+// ═══════════════════════════════════════════════════════════════════
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 15,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.background.primary,
   },
-  image: {
-    width: 120,
-    height: 120,
-    alignSelf: 'center',
-    marginBottom: 10,
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  title: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
+  loadingIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.primaryLight + '20',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.md,
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#555',
-    textAlign: 'center',
-    marginBottom: 20,
+  loadingEmoji: {
+    fontSize: 40,
   },
-  card: {
-    backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
+  loadingText: {
+    ...typography.body,
+    color: colors.text.muted,
   },
-  exportTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    marginBottom: 5,
+  header: {
+    padding: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xxl,
   },
-  highlight: {
-    fontWeight: '600',
-    color: '#e67e22',
+  greeting: {
+    ...typography.bodySmall,
+    color: 'rgba(255, 255, 255, 0.8)',
   },
-  details: {
-    marginTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    paddingTop: 10,
+  welcomeName: {
+    ...typography.h1,
+    color: colors.text.light,
+    marginTop: spacing.xs,
   },
-  section: {
-    marginBottom: 10,
+  headerSubtext: {
+    ...typography.body,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginTop: spacing.sm,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: spacing.sm,
+    marginTop: -spacing.xl,
+  },
+  statCard: {
+    width: '48%',
+    margin: '1%',
+    backgroundColor: colors.background.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    alignItems: 'center',
+    ...shadows.sm,
+  },
+  statIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  statIcon: {
+    fontSize: 20,
+  },
+  statValue: {
+    ...typography.stat,
+  },
+  statLabel: {
+    ...typography.caption,
+    color: colors.text.muted,
+    marginTop: spacing.xxs,
+  },
+  exportsSection: {
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.lg,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#444',
-    marginBottom: 4,
+    ...typography.h3,
+    color: colors.text.primary,
+  },
+  exportCount: {
+    ...typography.caption,
+    color: colors.text.muted,
+  },
+  exportCard: {
+    marginBottom: spacing.md,
+  },
+  exportHeader: {
+    marginBottom: spacing.md,
+  },
+  exportTitleSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  exportTitle: {
+    ...typography.h4,
+    color: colors.primary,
+    flex: 1,
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.round,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: spacing.xs,
+  },
+  statusText: {
+    ...typography.captionMedium,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  summaryItem: {
+    flex: 1,
+  },
+  summaryLabel: {
+    ...typography.caption,
+    color: colors.text.muted,
+  },
+  summaryValue: {
+    ...typography.bodyMedium,
+    color: colors.text.primary,
+    marginTop: 2,
+  },
+  expandedSection: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border.light,
+  },
+  detailsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: spacing.md,
+  },
+  detailItem: {
+    width: '50%',
+    paddingVertical: spacing.sm,
+  },
+  detailLabel: {
+    ...typography.caption,
+    color: colors.text.muted,
+  },
+  detailValue: {
+    ...typography.bodyMedium,
+    color: colors.text.primary,
+    marginTop: 2,
+  },
+  routeSection: {
+    marginBottom: spacing.md,
+  },
+  routeTitle: {
+    ...typography.bodyMedium,
+    color: colors.text.primary,
+    marginBottom: spacing.sm,
+  },
+  routeList: {
+    paddingLeft: spacing.sm,
+  },
+  routeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  routeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+    marginRight: spacing.sm,
   },
   routeText: {
-    fontSize: 14,
-    color: '#444',
-    paddingLeft: 10,
+    ...typography.bodySmall,
+    color: colors.text.secondary,
   },
-  buttonRow: {
+  actionButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 15,
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
-  actionButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 8,
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.sm + 2,
+    borderRadius: borderRadius.md,
   },
-  actionText: {
-    color: '#fff',
-    fontWeight: '600',
+  actionBtnIcon: {
+    fontSize: 16,
+    marginRight: spacing.xs,
+  },
+  actionBtnText: {
+    ...typography.buttonSmall,
+  },
+  expandIndicator: {
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  expandIcon: {
+    color: colors.text.muted,
+    fontSize: 12,
+  },
+  emptyCard: {
+    padding: spacing.xl,
+    alignItems: 'center',
+  },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: spacing.md,
+  },
+  emptyTitle: {
+    ...typography.h4,
+    color: colors.text.primary,
+    marginBottom: spacing.sm,
+  },
+  emptySubtext: {
+    ...typography.body,
+    color: colors.text.muted,
+  },
+  bottomPadding: {
+    height: spacing.xxl,
   },
 });
+
+export default VendorHomePlaceHolder;

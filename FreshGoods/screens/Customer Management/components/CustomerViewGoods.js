@@ -1,7 +1,8 @@
 /**
- * CustomerViewGoods - Browse vendors and their products
- * Fetches real data from the API
+ * CustomerViewGoods.js
+ * Browse ongoing exports with enhanced UI and filtering
  */
+
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -12,53 +13,173 @@ import {
   RefreshControl,
   TouchableOpacity,
   TextInput,
+  Animated,
 } from 'react-native';
 import axios from 'axios';
+import { LinearGradient } from 'expo-linear-gradient';
 import { IPADD } from '../../ipadd';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
+import {
+  colors,
+  gradients,
+  spacing,
+  borderRadius,
+  typography,
+  shadows,
+  getStatusColor,
+  getStatusBgColor,
+} from '../../theme';
 import ThemedCard from '../../components/ThemedCard';
+import {
+  SlideInView,
+  FadeInView,
+  AnimatedPressable,
+} from '../../components/AnimatedComponents';
 
-const VendorCard = ({ vendor, onPress }) => (
-  <ThemedCard variant="elevated" style={styles.vendorCard} onPress={onPress}>
-    <View style={styles.vendorHeader}>
-      <View style={styles.vendorAvatar}>
-        <Text style={styles.avatarText}>
-          {vendor.name?.charAt(0)?.toUpperCase() || '?'}
+// ═══════════════════════════════════════════════════════════════════
+// FILTER TAB COMPONENT
+// ═══════════════════════════════════════════════════════════════════
+const FilterTab = ({ label, isActive, onPress, count }) => (
+  <TouchableOpacity
+    style={[styles.filterTab, isActive && styles.filterTabActive]}
+    onPress={onPress}
+    activeOpacity={0.7}
+  >
+    <Text style={[styles.filterTabText, isActive && styles.filterTabTextActive]}>
+      {label}
+    </Text>
+    {count !== undefined && (
+      <View style={[styles.filterBadge, isActive && styles.filterBadgeActive]}>
+        <Text style={[styles.filterBadgeText, isActive && styles.filterBadgeTextActive]}>
+          {count}
         </Text>
       </View>
-      <View style={styles.vendorInfo}>
-        <Text style={styles.vendorName}>{vendor.name}</Text>
-        <Text style={styles.vendorLocation}>
-          📍 {vendor.district}, {vendor.state}
-        </Text>
-      </View>
-    </View>
-    <View style={styles.vendorFooter}>
-      <Text style={styles.vendorContact}>📞 {vendor.mobileNo}</Text>
-      <View style={styles.viewButton}>
-        <Text style={styles.viewButtonText}>View Details →</Text>
-      </View>
-    </View>
-  </ThemedCard>
+    )}
+  </TouchableOpacity>
 );
 
-const CustomerViewGoods = () => {
+// ═══════════════════════════════════════════════════════════════════
+// EXPORT CARD COMPONENT
+// ═══════════════════════════════════════════════════════════════════
+const ExportCard = ({ exportItem, onPress, index }) => {
+  const statusColor = getStatusColor(exportItem.status);
+  const statusBg = getStatusBgColor(exportItem.status);
+
+  return (
+    <SlideInView delay={index * 80} style={styles.cardWrapper}>
+      <AnimatedPressable onPress={onPress}>
+        <ThemedCard variant="elevated" style={styles.exportCard}>
+          {/* Status Badge */}
+          <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+            <Text style={[styles.statusText, { color: statusColor }]}>
+              {exportItem.status || 'Active'}
+            </Text>
+          </View>
+
+          {/* Product Info */}
+          <View style={styles.exportHeader}>
+            <View style={styles.productIconContainer}>
+              <LinearGradient
+                colors={[statusColor + '30', statusColor + '10']}
+                style={styles.productIcon}
+              >
+                <Text style={styles.productEmoji}>📦</Text>
+              </LinearGradient>
+            </View>
+            <View style={styles.productInfo}>
+              <Text style={styles.productName} numberOfLines={1}>
+                {exportItem.itemName || exportItem.productName || 'Goods Shipment'}
+              </Text>
+              <Text style={styles.quantity}>
+                {exportItem.quantity || '-'} {exportItem.unit || 'units'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Route Info */}
+          <View style={styles.routeContainer}>
+            <View style={styles.routePoint}>
+              <View style={[styles.routeDot, { backgroundColor: colors.success }]} />
+              <Text style={styles.routeText} numberOfLines={1}>
+                {exportItem.startLocation?.name ||
+                  exportItem.routes?.[0] ||
+                  'Origin'}
+              </Text>
+            </View>
+            <View style={styles.routeArrow}>
+              <Text style={styles.arrowText}>→</Text>
+            </View>
+            <View style={styles.routePoint}>
+              <View style={[styles.routeDot, { backgroundColor: colors.error }]} />
+              <Text style={styles.routeText} numberOfLines={1}>
+                {exportItem.endLocation?.name ||
+                  exportItem.routes?.[exportItem.routes?.length - 1] ||
+                  'Destination'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Details Row */}
+          <View style={styles.detailsRow}>
+            <View style={styles.detailItem}>
+              <Text style={styles.detailIcon}>🏪</Text>
+              <Text style={styles.detailText} numberOfLines={1}>
+                {exportItem.vendorId?.name || 'Vendor'}
+              </Text>
+            </View>
+            <View style={styles.detailItem}>
+              <Text style={styles.detailIcon}>🚚</Text>
+              <Text style={styles.detailText} numberOfLines={1}>
+                {exportItem.driver?.name || 'Driver'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Track Button */}
+          <TouchableOpacity style={styles.trackButton} onPress={onPress}>
+            <LinearGradient
+              colors={gradients.primary}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.trackButtonGradient}
+            >
+              <Text style={styles.trackButtonText}>Track Shipment</Text>
+              <Text style={styles.trackButtonArrow}>→</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </ThemedCard>
+      </AnimatedPressable>
+    </SlideInView>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════════
+const CustomerViewGoods = ({ onTrack }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [vendors, setVendors] = useState([]);
-  const [filteredVendors, setFilteredVendors] = useState([]);
+  const [exports, setExports] = useState([]);
+  const [filteredExports, setFilteredExports] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState('all');
   const [error, setError] = useState(null);
 
-  const fetchVendors = useCallback(async () => {
+  const fetchExports = useCallback(async () => {
     try {
-      const response = await axios.get(`http://${IPADD}:5000/api/customer/vendors`);
-      setVendors(response.data);
-      setFilteredVendors(response.data);
+      const response = await axios.get(
+        `http://${IPADD}:5000/api/customer/exports/available`
+      );
+      setExports(response.data || []);
+      setFilteredExports(response.data || []);
       setError(null);
     } catch (err) {
-      console.error('Error fetching vendors:', err);
-      setError('Failed to load vendors');
+      console.error('Error fetching exports:', err);
+      setError('Failed to load exports');
+      // Demo data fallback
+      const demoData = [];
+      setExports(demoData);
+      setFilteredExports(demoData);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -66,51 +187,64 @@ const CustomerViewGoods = () => {
   }, []);
 
   useEffect(() => {
-    fetchVendors();
-  }, [fetchVendors]);
+    fetchExports();
+  }, [fetchExports]);
 
+  // Apply filters
   useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredVendors(vendors);
-    } else {
+    let result = [...exports];
+
+    // Search filter
+    if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      const filtered = vendors.filter(
-        (v) =>
-          v.name?.toLowerCase().includes(query) ||
-          v.district?.toLowerCase().includes(query) ||
-          v.state?.toLowerCase().includes(query)
+      result = result.filter(
+        (exp) =>
+          exp.itemName?.toLowerCase().includes(query) ||
+          exp.productName?.toLowerCase().includes(query) ||
+          exp.vendorId?.name?.toLowerCase().includes(query) ||
+          exp.driver?.name?.toLowerCase().includes(query)
       );
-      setFilteredVendors(filtered);
     }
-  }, [searchQuery, vendors]);
+
+    // Status filter
+    if (activeFilter !== 'all') {
+      result = result.filter(
+        (exp) => exp.status?.toLowerCase() === activeFilter
+      );
+    }
+
+    setFilteredExports(result);
+  }, [searchQuery, activeFilter, exports]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchVendors();
-  }, [fetchVendors]);
+    fetchExports();
+  }, [fetchExports]);
 
-  const handleVendorPress = (vendor) => {
-    // Navigate to vendor details or start chat
-    console.log('Selected vendor:', vendor._id);
+  const handleExportPress = (exportItem) => {
+    if (onTrack) {
+      onTrack(exportItem);
+    } else {
+      console.log('Selected export:', exportItem._id);
+    }
   };
+
+  const getFilterCounts = () => {
+    return {
+      all: exports.length,
+      started: exports.filter((e) => e.status?.toLowerCase() === 'started').length,
+      assigned: exports.filter((e) => e.status?.toLowerCase() === 'assigned').length,
+      completed: exports.filter((e) => e.status?.toLowerCase() === 'completed').length,
+    };
+  };
+
+  const filterCounts = getFilterCounts();
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading vendors...</Text>
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorIcon}>⚠️</Text>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchVendors}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
+        <Text style={styles.loadingText}>Loading available goods...</Text>
       </View>
     );
   }
@@ -118,37 +252,68 @@ const CustomerViewGoods = () => {
   return (
     <View style={styles.container}>
       {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search vendors, locations..."
-          placeholderTextColor={colors.text.muted}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
+      <FadeInView style={styles.searchContainer}>
+        <View style={styles.searchInputContainer}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by product, vendor, driver..."
+            placeholderTextColor={colors.text.muted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              style={styles.clearButton}
+            >
+              <Text style={styles.clearText}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </FadeInView>
+
+      {/* Filter Tabs */}
+      <FadeInView delay={100} style={styles.filterContainer}>
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={[
+            { key: 'all', label: 'All', count: filterCounts.all },
+            { key: 'started', label: 'In Transit', count: filterCounts.started },
+            { key: 'assigned', label: 'Assigned', count: filterCounts.assigned },
+            { key: 'completed', label: 'Completed', count: filterCounts.completed },
+          ]}
+          renderItem={({ item }) => (
+            <FilterTab
+              label={item.label}
+              count={item.count}
+              isActive={activeFilter === item.key}
+              onPress={() => setActiveFilter(item.key)}
+            />
+          )}
+          contentContainerStyle={styles.filterList}
         />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity
-            style={styles.clearButton}
-            onPress={() => setSearchQuery('')}
-          >
-            <Text style={styles.clearText}>✕</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      </FadeInView>
 
       {/* Results Count */}
       <View style={styles.resultsHeader}>
         <Text style={styles.resultsCount}>
-          {filteredVendors.length} vendor{filteredVendors.length !== 1 ? 's' : ''} found
+          {filteredExports.length} shipment
+          {filteredExports.length !== 1 ? 's' : ''} found
         </Text>
       </View>
 
-      {/* Vendor List */}
+      {/* Export List */}
       <FlatList
-        data={filteredVendors}
-        keyExtractor={(item) => item._id}
-        renderItem={({ item }) => (
-          <VendorCard vendor={item} onPress={() => handleVendorPress(item)} />
+        data={filteredExports}
+        keyExtractor={(item) => item._id || Math.random().toString()}
+        renderItem={({ item, index }) => (
+          <ExportCard
+            exportItem={item}
+            index={index}
+            onPress={() => handleExportPress(item)}
+          />
         )}
         contentContainerStyle={styles.listContent}
         refreshControl={
@@ -159,21 +324,24 @@ const CustomerViewGoods = () => {
           />
         }
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>🔍</Text>
-            <Text style={styles.emptyText}>No vendors found</Text>
+          <FadeInView style={styles.emptyContainer}>
+            <Text style={styles.emptyIcon}>📭</Text>
+            <Text style={styles.emptyTitle}>No Shipments Found</Text>
             <Text style={styles.emptySubtext}>
-              {searchQuery ? 'Try a different search term' : 'Pull down to refresh'}
+              {searchQuery || activeFilter !== 'all'
+                ? 'Try adjusting your filters'
+                : 'Pull down to refresh'}
             </Text>
-          </View>
+          </FadeInView>
         }
       />
     </View>
   );
 };
 
-export default CustomerViewGoods;
-
+// ═══════════════════════════════════════════════════════════════════
+// STYLES
+// ═══════════════════════════════════════════════════════════════════
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -185,50 +353,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
+    ...typography.body,
+    color: colors.text.muted,
     marginTop: spacing.md,
-    color: colors.text.dark,
-    ...typography.body,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.xl,
-  },
-  errorIcon: {
-    fontSize: 48,
-    marginBottom: spacing.md,
-  },
-  errorText: {
-    ...typography.body,
-    color: colors.error,
-    marginBottom: spacing.lg,
-    textAlign: 'center',
-  },
-  retryButton: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.round,
-  },
-  retryText: {
-    color: '#fff',
-    fontWeight: 'bold',
   },
   searchContainer: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  searchInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    margin: spacing.md,
-    paddingHorizontal: spacing.md,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background.card,
     borderRadius: borderRadius.lg,
-    ...shadows.small,
+    paddingHorizontal: spacing.md,
+    ...shadows.sm,
+  },
+  searchIcon: {
+    fontSize: 16,
+    marginRight: spacing.sm,
   },
   searchInput: {
     flex: 1,
     paddingVertical: spacing.sm + 4,
     ...typography.body,
-    color: colors.text.dark,
+    color: colors.text.primary,
   },
   clearButton: {
     padding: spacing.sm,
@@ -237,9 +387,52 @@ const styles = StyleSheet.create({
     color: colors.text.muted,
     fontSize: 16,
   },
+  filterContainer: {
+    paddingBottom: spacing.sm,
+  },
+  filterList: {
+    paddingHorizontal: spacing.md,
+  },
+  filterTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginRight: spacing.sm,
+    borderRadius: borderRadius.round,
+    backgroundColor: colors.background.secondary,
+  },
+  filterTabActive: {
+    backgroundColor: colors.primary,
+  },
+  filterTabText: {
+    ...typography.bodySmall,
+    color: colors.text.secondary,
+  },
+  filterTabTextActive: {
+    color: colors.text.light,
+    fontWeight: '600',
+  },
+  filterBadge: {
+    marginLeft: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.round,
+    backgroundColor: colors.border.light,
+  },
+  filterBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  filterBadgeText: {
+    ...typography.caption,
+    color: colors.text.muted,
+  },
+  filterBadgeTextActive: {
+    color: colors.text.light,
+  },
   resultsHeader: {
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
   },
   resultsCount: {
     ...typography.caption,
@@ -247,80 +440,149 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: spacing.md,
-    paddingBottom: spacing.xl,
+    paddingBottom: spacing.xxl,
   },
-  vendorCard: {
+  cardWrapper: {
     marginBottom: spacing.md,
   },
-  vendorHeader: {
+  exportCard: {
+    position: 'relative',
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.round,
+    marginBottom: spacing.md,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: spacing.xs,
+  },
+  statusText: {
+    ...typography.captionMedium,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  exportHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: spacing.md,
   },
-  vendorAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
+  productIconContainer: {
     marginRight: spacing.md,
   },
-  avatarText: {
-    ...typography.h2,
-    color: '#fff',
+  productIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  vendorInfo: {
+  productEmoji: {
+    fontSize: 24,
+  },
+  productInfo: {
     flex: 1,
   },
-  vendorName: {
-    ...typography.h3,
-    color: colors.text.dark,
+  productName: {
+    ...typography.h4,
+    color: colors.text.primary,
   },
-  vendorLocation: {
-    ...typography.caption,
-    color: colors.text.muted,
-    marginTop: spacing.xs,
-  },
-  vendorFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
-  vendorContact: {
+  quantity: {
     ...typography.bodySmall,
-    color: colors.text.dark,
+    color: colors.text.muted,
+    marginTop: 2,
   },
-  viewButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    backgroundColor: colors.secondary,
-    borderRadius: borderRadius.round,
+  routeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background.secondary,
+    padding: spacing.sm + 2,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.md,
   },
-  viewButtonText: {
-    ...typography.caption,
-    color: '#fff',
-    fontWeight: 'bold',
+  routePoint: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  routeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: spacing.sm,
+  },
+  routeText: {
+    ...typography.bodySmall,
+    color: colors.text.secondary,
+    flex: 1,
+  },
+  routeArrow: {
+    paddingHorizontal: spacing.sm,
+  },
+  arrowText: {
+    color: colors.text.muted,
+    fontSize: 16,
+  },
+  detailsRow: {
+    flexDirection: 'row',
+    marginBottom: spacing.md,
+  },
+  detailItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  detailIcon: {
+    fontSize: 14,
+    marginRight: spacing.sm,
+  },
+  detailText: {
+    ...typography.bodySmall,
+    color: colors.text.secondary,
+    flex: 1,
+  },
+  trackButton: {
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+  },
+  trackButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.sm + 4,
+  },
+  trackButtonText: {
+    ...typography.button,
+    color: colors.text.light,
+    marginRight: spacing.sm,
+  },
+  trackButtonArrow: {
+    color: colors.text.light,
+    fontSize: 18,
   },
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: spacing.xxl,
   },
   emptyIcon: {
-    fontSize: 48,
+    fontSize: 56,
     marginBottom: spacing.md,
   },
-  emptyText: {
-    ...typography.body,
-    color: colors.text.dark,
-    fontWeight: '500',
+  emptyTitle: {
+    ...typography.h3,
+    color: colors.text.primary,
+    marginBottom: spacing.sm,
   },
   emptySubtext: {
-    ...typography.caption,
+    ...typography.body,
     color: colors.text.muted,
-    marginTop: spacing.xs,
   },
 });
+
+export default CustomerViewGoods;

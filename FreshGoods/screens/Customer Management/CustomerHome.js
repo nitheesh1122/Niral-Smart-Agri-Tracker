@@ -1,72 +1,119 @@
-// CustomerHome.js - Updated with SidebarMenu and logout functionality
+/**
+ * CustomerHome.js
+ * Main customer container with navigation and premium UI
+ */
+
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 
-import CustomerHomePlaceholder from './components/CustomerHomePlaceholder';
-import CustomerProfilePlaceholder from './components/CustomerProfilePlaceholder';
+// Screens
+import CustomerDashboard from './components/CustomerHomePlaceholder';
+import CustomerProfile from './components/CustomerProfile';
 import CustomerViewGoods from './components/CustomerViewGoods';
+import CustomerTrackingScreen from './components/CustomerTrackingScreen';
 import VendorSelectList from './components/VendorSelectList';
 import CustomerChat from './components/CustomerChatPlaceholder';
 
+// Components
 import SidebarMenu from '../components/SidebarMenu';
 import AppHeader from '../components/AppHeader';
+import SettingsScreen from '../components/SettingsScreen';
+import NotificationCenter from '../components/NotificationCenter';
 import { colors, spacing } from '../theme';
 
 const MENU_ITEMS = [
   { id: 'home', label: 'Home', icon: '🏠' },
   { id: 'profile', label: 'Profile', icon: '👤' },
-  { id: 'viewGoods', label: 'View Goods', icon: '🛒' },
+  { id: 'viewGoods', label: 'Browse Goods', icon: '🛒' },
   { id: 'chat', label: 'Chat', icon: '💬' },
+  { id: 'notifications', label: 'Notifications', icon: '🔔' },
+  { id: 'settings', label: 'Settings', icon: '⚙️' },
 ];
 
 const CustomerHome = () => {
   const navigation = useNavigation();
 
-  /* State */
+  // State
   const [activeSection, setActiveSection] = useState('home');
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [userName, setUserName] = useState('Customer');
+  const [userEmail, setUserEmail] = useState('');
 
-  /* Chat state */
+  // Chat state
   const [customerId, setCustomerId] = useState(null);
   const [vendorId, setVendorId] = useState(null);
   const [vendorName, setVendorName] = useState(null);
 
-  /* Get user data */
+  // Tracking state
+  const [trackingData, setTrackingData] = useState(null);
+
+  // Get user data
   useEffect(() => {
     const fetchUserData = async () => {
       const userId = await AsyncStorage.getItem('userId');
+      const name = await AsyncStorage.getItem('userName');
+      const email = await AsyncStorage.getItem('userEmail');
       setCustomerId(userId);
-      // You could fetch user name from API here
+      if (name) setUserName(name);
+      if (email) setUserEmail(email);
     };
     fetchUserData();
   }, []);
 
-  /* Get page title */
+  // Get page title
   const getPageTitle = () => {
-    if (activeSection === 'chat' && vendorName) {
-      return `Chat with ${vendorName}`;
-    }
-    const item = MENU_ITEMS.find(m => m.id === activeSection);
+    if (activeSection === 'tracking') return 'Track Shipment';
+    if (activeSection === 'chat' && vendorName) return `Chat with ${vendorName}`;
+    const item = MENU_ITEMS.find((m) => m.id === activeSection);
     return item ? item.label : 'Home';
   };
 
-  /* Handle back in chat */
-  const handleChatBack = () => {
-    setVendorId(null);
-    setVendorName(null);
+  // Handle navigation from dashboard
+  const handleNavigate = (section, data) => {
+    if (section === 'tracking' && data) {
+      setTrackingData(data);
+      setActiveSection('tracking');
+    } else {
+      setActiveSection(section);
+    }
   };
 
-  /* Render content */
+  // Handle back in chat or tracking
+  const handleBack = () => {
+    if (activeSection === 'tracking') {
+      setTrackingData(null);
+      setActiveSection('home');
+    } else if (vendorId) {
+      setVendorId(null);
+      setVendorName(null);
+    } else {
+      setActiveSection('home');
+    }
+  };
+
+  // Render content
   const renderContent = () => {
     switch (activeSection) {
       case 'profile':
-        return <CustomerProfilePlaceholder />;
+        return <CustomerProfile />;
 
       case 'viewGoods':
-        return <CustomerViewGoods />;
+        return (
+          <CustomerViewGoods
+            onTrack={(exportData) => handleNavigate('tracking', { exportData })}
+          />
+        );
+
+      case 'tracking':
+        return (
+          <CustomerTrackingScreen
+            exportId={trackingData?.exportId}
+            exportData={trackingData?.exportData}
+            onBack={handleBack}
+          />
+        );
 
       case 'chat':
         return vendorId ? (
@@ -74,7 +121,10 @@ const CustomerHome = () => {
             vendorId={vendorId}
             vendorName={vendorName}
             customerId={customerId}
-            onBack={handleChatBack}
+            onBack={() => {
+              setVendorId(null);
+              setVendorName(null);
+            }}
           />
         ) : (
           <VendorSelectList
@@ -85,11 +135,21 @@ const CustomerHome = () => {
           />
         );
 
+      case 'notifications':
+        return <NotificationCenter onBack={() => setActiveSection('home')} />;
+
+      case 'settings':
+        return <SettingsScreen onBack={() => setActiveSection('home')} />;
+
       case 'home':
       default:
-        return <CustomerHomePlaceholder onNavigate={setActiveSection} />;
+        return <CustomerDashboard onNavigate={handleNavigate} />;
     }
   };
+
+  const showBackButton =
+    activeSection === 'tracking' ||
+    (activeSection === 'chat' && vendorId);
 
   return (
     <View style={styles.container}>
@@ -97,19 +157,22 @@ const CustomerHome = () => {
       <AppHeader
         title={getPageTitle()}
         subtitle="Customer"
-        showBack={activeSection === 'chat' && vendorId}
-        onBack={handleChatBack}
+        showBack={showBackButton}
+        onBack={handleBack}
         rightComponent={
-          <TouchableOpacity onPress={() => setIsMenuVisible(true)}>
-            <Text style={styles.menuIcon}>☰</Text>
-          </TouchableOpacity>
+          !showBackButton ? (
+            <TouchableOpacity
+              onPress={() => setIsMenuVisible(true)}
+              style={styles.menuButton}
+            >
+              <Text style={styles.menuIcon}>☰</Text>
+            </TouchableOpacity>
+          ) : null
         }
       />
 
       {/* Main content */}
-      <View style={styles.mainContent}>
-        {renderContent()}
-      </View>
+      <View style={styles.mainContent}>{renderContent()}</View>
 
       {/* Sidebar Menu */}
       <SidebarMenu
@@ -119,14 +182,13 @@ const CustomerHome = () => {
         activeItem={activeSection}
         onItemPress={(id) => {
           setActiveSection(id);
-          // Reset chat state when switching sections
-          if (id !== 'chat') {
-            setVendorId(null);
-            setVendorName(null);
-          }
+          setVendorId(null);
+          setVendorName(null);
+          setTrackingData(null);
         }}
         navigation={navigation}
         userName={userName}
+        userEmail={userEmail}
         userRole="Customer"
       />
     </View>
@@ -143,8 +205,16 @@ const styles = StyleSheet.create({
   mainContent: {
     flex: 1,
   },
+  menuButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   menuIcon: {
-    fontSize: 24,
+    fontSize: 20,
     color: colors.text.light,
     fontWeight: 'bold',
   },

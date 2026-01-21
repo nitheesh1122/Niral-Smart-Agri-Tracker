@@ -1,10 +1,19 @@
 /**
- * AppHeader - Dynamic header component with page title and navigation
- * Features: back button, page title, breadcrumb support
+ * AppHeader.js
+ * Premium gradient header with animations
  */
+
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, Platform } from 'react-native';
-import { colors, spacing, typography, shadows } from '../theme';
+import {
+    View,
+    Text,
+    TouchableOpacity,
+    StyleSheet,
+    StatusBar,
+    Platform,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { colors, gradients, spacing, typography, shadows } from '../theme';
 
 const AppHeader = ({
     title,
@@ -12,74 +21,113 @@ const AppHeader = ({
     showBack = false,
     onBack,
     rightComponent,
+    leftComponent,
+    variant = 'gradient', // 'gradient' | 'solid' | 'transparent'
     style,
 }) => {
-    return (
-        <View style={[styles.container, style]}>
-            <StatusBar backgroundColor={colors.background.dark} barStyle="light-content" />
+    const getBackgroundStyle = () => {
+        switch (variant) {
+            case 'gradient':
+                return null; // Will use LinearGradient
+            case 'solid':
+                return { backgroundColor: colors.primary };
+            case 'transparent':
+                return { backgroundColor: 'transparent' };
+            default:
+                return null;
+        }
+    };
 
-            <View style={styles.content}>
-                {/* Left side - Back button or spacer */}
-                <View style={styles.leftSection}>
-                    {showBack && onBack && (
-                        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-                            <Text style={styles.backIcon}>←</Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
+    const renderContent = () => (
+        <View style={styles.content}>
+            {/* Left side */}
+            <View style={styles.leftContainer}>
+                {showBack && onBack ? (
+                    <TouchableOpacity onPress={onBack} style={styles.backButton}>
+                        <Text style={styles.backIcon}>←</Text>
+                    </TouchableOpacity>
+                ) : leftComponent ? (
+                    leftComponent
+                ) : (
+                    <View style={styles.placeholder} />
+                )}
+            </View>
 
-                {/* Center - Title */}
-                <View style={styles.centerSection}>
-                    <Text style={styles.title} numberOfLines={1}>{title}</Text>
-                    {subtitle && (
-                        <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
-                    )}
-                </View>
+            {/* Center - Title */}
+            <View style={styles.titleContainer}>
+                <Text style={styles.title} numberOfLines={1}>
+                    {title}
+                </Text>
+                {subtitle && (
+                    <Text style={styles.subtitle} numberOfLines={1}>
+                        {subtitle}
+                    </Text>
+                )}
+            </View>
 
-                {/* Right side - Optional component */}
-                <View style={styles.rightSection}>
-                    {rightComponent}
-                </View>
+            {/* Right side */}
+            <View style={styles.rightContainer}>
+                {rightComponent || <View style={styles.placeholder} />}
             </View>
         </View>
     );
-};
 
-const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 24;
+    if (variant === 'gradient') {
+        return (
+            <>
+                <StatusBar
+                    barStyle="light-content"
+                    backgroundColor={colors.primaryDark}
+                    translucent={false}
+                />
+                <LinearGradient
+                    colors={gradients.forest}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[styles.container, style]}
+                >
+                    {renderContent()}
+                </LinearGradient>
+            </>
+        );
+    }
+
+    return (
+        <>
+            <StatusBar
+                barStyle={variant === 'transparent' ? 'dark-content' : 'light-content'}
+                backgroundColor="transparent"
+                translucent={false}
+            />
+            <View style={[styles.container, getBackgroundStyle(), style]}>
+                {renderContent()}
+            </View>
+        </>
+    );
+};
 
 const styles = StyleSheet.create({
     container: {
-        backgroundColor: colors.background.dark,
-        paddingTop: STATUSBAR_HEIGHT,
-        ...shadows.medium,
+        paddingTop: Platform.OS === 'ios' ? 48 : StatusBar.currentHeight + 8,
+        paddingBottom: spacing.md,
+        paddingHorizontal: spacing.md,
+        ...shadows.md,
     },
     content: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.sm,
-        minHeight: 56,
     },
-    leftSection: {
+    leftContainer: {
         width: 48,
         alignItems: 'flex-start',
     },
-    centerSection: {
-        flex: 1,
-        alignItems: 'center',
-    },
-    rightSection: {
+    rightContainer: {
         width: 48,
         alignItems: 'flex-end',
     },
-    backButton: {
-        padding: spacing.xs,
-    },
-    backIcon: {
-        fontSize: 24,
-        color: colors.text.light,
-        fontWeight: 'bold',
+    titleContainer: {
+        flex: 1,
+        alignItems: 'center',
     },
     title: {
         ...typography.h3,
@@ -88,8 +136,25 @@ const styles = StyleSheet.create({
     },
     subtitle: {
         ...typography.caption,
-        color: colors.text.muted,
+        color: 'rgba(255, 255, 255, 0.7)',
         marginTop: 2,
+    },
+    backButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255, 255, 255, 0.15)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    backIcon: {
+        fontSize: 20,
+        color: colors.text.light,
+        fontWeight: 'bold',
+    },
+    placeholder: {
+        width: 40,
+        height: 40,
     },
 });
 

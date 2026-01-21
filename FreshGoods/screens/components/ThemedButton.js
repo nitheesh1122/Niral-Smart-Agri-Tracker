@@ -1,156 +1,252 @@
 /**
- * ThemedButton - Reusable button component with theme styling
+ * ThemedButton.js
+ * Premium button component with gradients, animations, and multiple variants
  */
-import React from 'react';
+
+import React, { useRef } from 'react';
 import {
-    TouchableOpacity,
     Text,
     StyleSheet,
+    TouchableWithoutFeedback,
+    Animated,
     ActivityIndicator,
     View,
 } from 'react-native';
-import { colors, spacing, borderRadius, typography } from '../theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+    colors,
+    gradients,
+    spacing,
+    borderRadius,
+    typography,
+    shadows,
+    components,
+} from '../theme';
 
 const ThemedButton = ({
     title,
     onPress,
-    variant = 'primary', // 'primary', 'secondary', 'outline', 'ghost', 'danger'
-    size = 'medium', // 'small', 'medium', 'large'
-    icon,
-    iconPosition = 'left',
-    loading = false,
+    variant = 'primary', // 'primary' | 'secondary' | 'outline' | 'ghost' | 'gradient' | 'success' | 'warning' | 'danger'
+    size = 'medium', // 'small' | 'medium' | 'large'
     disabled = false,
+    loading = false,
+    icon = null,
+    iconPosition = 'left',
     fullWidth = false,
     style,
     textStyle,
 }) => {
-    const buttonStyles = [
-        styles.base,
-        styles[variant],
-        styles[`size_${size}`],
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+
+    const handlePressIn = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 0.96,
+            tension: 150,
+            friction: 8,
+            useNativeDriver: true,
+        }).start();
+    };
+
+    const handlePressOut = () => {
+        Animated.spring(scaleAnim, {
+            toValue: 1,
+            tension: 100,
+            friction: 6,
+            useNativeDriver: true,
+        }).start();
+    };
+
+    // Get variant styles
+    const getVariantStyles = () => {
+        const isDisabled = disabled || loading;
+
+        switch (variant) {
+            case 'primary':
+                return {
+                    container: {
+                        backgroundColor: isDisabled ? colors.text.muted : colors.primary,
+                        ...shadows.primary,
+                    },
+                    text: { color: colors.text.light },
+                    gradient: null,
+                };
+            case 'secondary':
+                return {
+                    container: {
+                        backgroundColor: isDisabled ? colors.text.muted : colors.secondary,
+                    },
+                    text: { color: colors.text.light },
+                    gradient: null,
+                };
+            case 'outline':
+                return {
+                    container: {
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        borderColor: isDisabled ? colors.text.muted : colors.primary,
+                    },
+                    text: { color: isDisabled ? colors.text.muted : colors.primary },
+                    gradient: null,
+                };
+            case 'ghost':
+                return {
+                    container: {
+                        backgroundColor: 'transparent',
+                    },
+                    text: { color: isDisabled ? colors.text.muted : colors.primary },
+                    gradient: null,
+                };
+            case 'gradient':
+                return {
+                    container: {
+                        ...shadows.primary,
+                    },
+                    text: { color: colors.text.light },
+                    gradient: isDisabled ? ['#9CA3AF', '#6B7280'] : gradients.primary,
+                };
+            case 'success':
+                return {
+                    container: {
+                        backgroundColor: isDisabled ? colors.text.muted : colors.success,
+                        ...shadows.success,
+                    },
+                    text: { color: colors.text.light },
+                    gradient: null,
+                };
+            case 'warning':
+                return {
+                    container: {
+                        backgroundColor: isDisabled ? colors.text.muted : colors.warning,
+                        ...shadows.warning,
+                    },
+                    text: { color: colors.text.dark },
+                    gradient: null,
+                };
+            case 'danger':
+                return {
+                    container: {
+                        backgroundColor: isDisabled ? colors.text.muted : colors.error,
+                        ...shadows.error,
+                    },
+                    text: { color: colors.text.light },
+                    gradient: null,
+                };
+            default:
+                return {
+                    container: { backgroundColor: colors.primary },
+                    text: { color: colors.text.light },
+                    gradient: null,
+                };
+        }
+    };
+
+    // Get size styles
+    const getSizeStyles = () => {
+        return components.button[size] || components.button.medium;
+    };
+
+    const variantStyles = getVariantStyles();
+    const sizeStyles = getSizeStyles();
+
+    const renderContent = () => (
+        <View style={styles.content}>
+            {loading ? (
+                <ActivityIndicator
+                    size="small"
+                    color={variantStyles.text.color}
+                    style={styles.loader}
+                />
+            ) : (
+                <>
+                    {icon && iconPosition === 'left' && (
+                        <Text style={[styles.icon, { marginRight: spacing.sm }]}>{icon}</Text>
+                    )}
+                    <Text
+                        style={[
+                            styles.text,
+                            size === 'small' ? typography.buttonSmall : typography.button,
+                            variantStyles.text,
+                            textStyle,
+                        ]}
+                    >
+                        {title}
+                    </Text>
+                    {icon && iconPosition === 'right' && (
+                        <Text style={[styles.icon, { marginLeft: spacing.sm }]}>{icon}</Text>
+                    )}
+                </>
+            )}
+        </View>
+    );
+
+    const containerStyle = [
+        styles.container,
+        sizeStyles,
+        variantStyles.container,
         fullWidth && styles.fullWidth,
-        disabled && styles.disabled,
         style,
     ];
 
-    const textStyles = [
-        styles.text,
-        styles[`text_${variant}`],
-        styles[`textSize_${size}`],
-        disabled && styles.textDisabled,
-        textStyle,
-    ];
+    // Gradient button
+    if (variantStyles.gradient) {
+        return (
+            <TouchableWithoutFeedback
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                onPress={disabled || loading ? null : onPress}
+            >
+                <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+                    <LinearGradient
+                        colors={variantStyles.gradient}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={containerStyle}
+                    >
+                        {renderContent()}
+                    </LinearGradient>
+                </Animated.View>
+            </TouchableWithoutFeedback>
+        );
+    }
 
+    // Standard button
     return (
-        <TouchableOpacity
-            style={buttonStyles}
-            onPress={onPress}
-            disabled={disabled || loading}
-            activeOpacity={0.7}
+        <TouchableWithoutFeedback
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            onPress={disabled || loading ? null : onPress}
         >
-            {loading ? (
-                <ActivityIndicator
-                    color={variant === 'outline' || variant === 'ghost' ? colors.primary : '#fff'}
-                    size="small"
-                />
-            ) : (
-                <View style={styles.content}>
-                    {icon && iconPosition === 'left' && <Text style={styles.icon}>{icon}</Text>}
-                    <Text style={textStyles}>{title}</Text>
-                    {icon && iconPosition === 'right' && <Text style={styles.icon}>{icon}</Text>}
-                </View>
-            )}
-        </TouchableOpacity>
+            <Animated.View
+                style={[containerStyle, { transform: [{ scale: scaleAnim }] }]}
+            >
+                {renderContent()}
+            </Animated.View>
+        </TouchableWithoutFeedback>
     );
 };
 
 const styles = StyleSheet.create({
-    base: {
-        flexDirection: 'row',
+    container: {
         alignItems: 'center',
         justifyContent: 'center',
-        borderRadius: borderRadius.round,
+        flexDirection: 'row',
     },
     content: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: spacing.sm,
+        justifyContent: 'center',
+    },
+    text: {
+        textAlign: 'center',
     },
     icon: {
-        fontSize: 16,
+        fontSize: 18,
+    },
+    loader: {
+        marginVertical: 2,
     },
     fullWidth: {
         width: '100%',
-    },
-    disabled: {
-        opacity: 0.5,
-    },
-
-    // Variants
-    primary: {
-        backgroundColor: colors.primary,
-    },
-    secondary: {
-        backgroundColor: colors.secondary,
-    },
-    outline: {
-        backgroundColor: 'transparent',
-        borderWidth: 2,
-        borderColor: colors.primary,
-    },
-    ghost: {
-        backgroundColor: 'transparent',
-    },
-    danger: {
-        backgroundColor: colors.error,
-    },
-
-    // Sizes
-    size_small: {
-        paddingVertical: spacing.xs,
-        paddingHorizontal: spacing.md,
-    },
-    size_medium: {
-        paddingVertical: spacing.sm + 2,
-        paddingHorizontal: spacing.lg,
-    },
-    size_large: {
-        paddingVertical: spacing.md,
-        paddingHorizontal: spacing.xl,
-    },
-
-    // Text styles
-    text: {
-        fontWeight: 'bold',
-    },
-    text_primary: {
-        color: '#fff',
-    },
-    text_secondary: {
-        color: '#fff',
-    },
-    text_outline: {
-        color: colors.primary,
-    },
-    text_ghost: {
-        color: colors.primary,
-    },
-    text_danger: {
-        color: '#fff',
-    },
-    textDisabled: {
-        opacity: 0.7,
-    },
-
-    // Text sizes
-    textSize_small: {
-        fontSize: 13,
-    },
-    textSize_medium: {
-        fontSize: 15,
-    },
-    textSize_large: {
-        fontSize: 17,
     },
 });
 

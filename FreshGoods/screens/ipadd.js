@@ -1,2 +1,2 @@
-export const IPADD = "10.223.127.252";
+export const IPADD = "10.255.32.173";
 

@@ -1,19 +1,24 @@
-// DriverHome.js - Updated with SidebarMenu and logout functionality
+/**
+ * DriverHome.js
+ * Updated driver container with enhanced navigation
+ */
+
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 
-/* Screens */
+// Screens
 import DriverProfile from './components/DriverProfile';
 import DriverAssignedExports from './components/DriverAssignedExports';
 import DriverDeliveryHistory from './components/DriverDeliveryHistory';
 import DriverHomePlaceholder from './components/DriverHomePlaceholder';
 
-/* Chat helpers */
+// Chat helpers
 import VendorSelectList from './components/VendorSelectList';
 import DriverChat from './components/DriverChat';
 
+// Components
 import SidebarMenu from '../components/SidebarMenu';
 import AppHeader from '../components/AppHeader';
 import { colors } from '../theme';
@@ -29,41 +34,46 @@ const MENU_ITEMS = [
 const DriverHome = () => {
   const navigation = useNavigation();
 
-  /* Sidebar state */
+  // State
   const [activeSection, setActiveSection] = useState('home');
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [userName, setUserName] = useState('Driver');
+  const [userEmail, setUserEmail] = useState('');
 
-  /* Chat state */
+  // Chat state
   const [driverId, setDriverId] = useState(null);
   const [vendorId, setVendorId] = useState(null);
   const [vendorName, setVendorName] = useState('');
 
-  /* Get driverId from storage */
+  // Get user data
   useEffect(() => {
     const fetchData = async () => {
       const id = await AsyncStorage.getItem('userId');
+      const name = await AsyncStorage.getItem('userName');
+      const email = await AsyncStorage.getItem('userEmail');
       setDriverId(id);
+      if (name) setUserName(name);
+      if (email) setUserEmail(email);
     };
     fetchData();
   }, []);
 
-  /* Helpers */
+  // Reset chat state
   const resetChat = () => {
     setVendorId(null);
     setVendorName('');
   };
 
-  /* Get page title */
+  // Get page title
   const getPageTitle = () => {
     if (activeSection === 'chat' && vendorName) {
       return `Chat with ${vendorName}`;
     }
-    const item = MENU_ITEMS.find(m => m.id === activeSection);
+    const item = MENU_ITEMS.find((m) => m.id === activeSection);
     return item ? item.label : 'Home';
   };
 
-  /* Render content */
+  // Render content
   const renderContent = () => {
     if (activeSection === 'chat') {
       return vendorId ? (
@@ -84,12 +94,18 @@ const DriverHome = () => {
     }
 
     switch (activeSection) {
-      case 'profile': return <DriverProfile />;
-      case 'exports': return <DriverAssignedExports />;
-      case 'history': return <DriverDeliveryHistory />;
-      default: return <DriverHomePlaceholder />;
+      case 'profile':
+        return <DriverProfile />;
+      case 'exports':
+        return <DriverAssignedExports />;
+      case 'history':
+        return <DriverDeliveryHistory />;
+      default:
+        return <DriverHomePlaceholder />;
     }
   };
+
+  const showBackButton = activeSection === 'chat' && vendorId;
 
   return (
     <View style={styles.container}>
@@ -97,19 +113,22 @@ const DriverHome = () => {
       <AppHeader
         title={getPageTitle()}
         subtitle="Driver"
-        showBack={activeSection === 'chat' && vendorId}
+        showBack={showBackButton}
         onBack={resetChat}
         rightComponent={
-          <TouchableOpacity onPress={() => setIsMenuVisible(true)}>
-            <Text style={styles.menuIcon}>☰</Text>
-          </TouchableOpacity>
+          !showBackButton ? (
+            <TouchableOpacity
+              onPress={() => setIsMenuVisible(true)}
+              style={styles.menuButton}
+            >
+              <Text style={styles.menuIcon}>☰</Text>
+            </TouchableOpacity>
+          ) : null
         }
       />
 
       {/* Main content */}
-      <View style={styles.mainContent}>
-        {renderContent()}
-      </View>
+      <View style={styles.mainContent}>{renderContent()}</View>
 
       {/* Sidebar Menu */}
       <SidebarMenu
@@ -123,6 +142,7 @@ const DriverHome = () => {
         }}
         navigation={navigation}
         userName={userName}
+        userEmail={userEmail}
         userRole="Driver"
       />
     </View>
@@ -139,8 +159,16 @@ const styles = StyleSheet.create({
   mainContent: {
     flex: 1,
   },
+  menuButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   menuIcon: {
-    fontSize: 24,
+    fontSize: 20,
     color: colors.text.light,
     fontWeight: 'bold',
   },

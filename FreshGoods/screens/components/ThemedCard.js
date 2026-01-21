@@ -1,60 +1,168 @@
 /**
- * ThemedCard - Reusable card component with theme styling
+ * ThemedCard.js
+ * Premium card component with glassmorphism and animation effects
  */
-import React from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
-import { colors, spacing, borderRadius, shadows } from '../theme';
+
+import React, { useRef } from 'react';
+import {
+    View,
+    StyleSheet,
+    TouchableWithoutFeedback,
+    Animated,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+    colors,
+    gradients,
+    spacing,
+    borderRadius,
+    shadows,
+    glassmorphism,
+} from '../theme';
 
 const ThemedCard = ({
     children,
-    style,
-    variant = 'default', // 'default', 'elevated', 'outlined', 'glass'
+    variant = 'default', // 'default' | 'elevated' | 'glass' | 'outlined' | 'gradient' | 'dark'
     onPress,
-    padded = true,
+    padding = spacing.md,
+    style,
+    animated = true,
 }) => {
-    const cardStyles = [
-        styles.base,
-        padded && styles.padded,
-        styles[variant],
-        style,
-    ];
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+
+    const handlePressIn = () => {
+        if (!onPress || !animated) return;
+        Animated.spring(scaleAnim, {
+            toValue: 0.98,
+            tension: 150,
+            friction: 10,
+            useNativeDriver: true,
+        }).start();
+    };
+
+    const handlePressOut = () => {
+        if (!onPress || !animated) return;
+        Animated.spring(scaleAnim, {
+            toValue: 1,
+            tension: 100,
+            friction: 8,
+            useNativeDriver: true,
+        }).start();
+    };
+
+    // Get variant styles
+    const getVariantStyles = () => {
+        switch (variant) {
+            case 'default':
+                return {
+                    backgroundColor: colors.background.card,
+                    borderRadius: borderRadius.lg,
+                    ...shadows.sm,
+                };
+            case 'elevated':
+                return {
+                    backgroundColor: colors.background.card,
+                    borderRadius: borderRadius.lg,
+                    ...shadows.md,
+                };
+            case 'glass':
+                return {
+                    ...glassmorphism.card,
+                    borderRadius: borderRadius.lg,
+                    ...shadows.glass,
+                };
+            case 'outlined':
+                return {
+                    backgroundColor: colors.background.card,
+                    borderRadius: borderRadius.lg,
+                    borderWidth: 1,
+                    borderColor: colors.border.light,
+                };
+            case 'gradient':
+                return {
+                    borderRadius: borderRadius.lg,
+                    ...shadows.md,
+                    overflow: 'hidden',
+                };
+            case 'dark':
+                return {
+                    backgroundColor: colors.background.dark,
+                    borderRadius: borderRadius.lg,
+                    ...shadows.md,
+                };
+            default:
+                return {
+                    backgroundColor: colors.background.card,
+                    borderRadius: borderRadius.lg,
+                    ...shadows.sm,
+                };
+        }
+    };
+
+    const variantStyles = getVariantStyles();
+
+    // Gradient card
+    if (variant === 'gradient') {
+        const content = (
+            <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+                <LinearGradient
+                    colors={gradients.primary}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[styles.container, variantStyles, { padding }, style]}
+                >
+                    {children}
+                </LinearGradient>
+            </Animated.View>
+        );
+
+        if (onPress) {
+            return (
+                <TouchableWithoutFeedback
+                    onPressIn={handlePressIn}
+                    onPressOut={handlePressOut}
+                    onPress={onPress}
+                >
+                    {content}
+                </TouchableWithoutFeedback>
+            );
+        }
+        return content;
+    }
+
+    // Standard card
+    const content = (
+        <Animated.View
+            style={[
+                styles.container,
+                variantStyles,
+                { padding },
+                style,
+                { transform: [{ scale: scaleAnim }] },
+            ]}
+        >
+            {children}
+        </Animated.View>
+    );
 
     if (onPress) {
         return (
-            <TouchableOpacity style={cardStyles} onPress={onPress} activeOpacity={0.7}>
-                {children}
-            </TouchableOpacity>
+            <TouchableWithoutFeedback
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                onPress={onPress}
+            >
+                {content}
+            </TouchableWithoutFeedback>
         );
     }
 
-    return <View style={cardStyles}>{children}</View>;
+    return content;
 };
 
 const styles = StyleSheet.create({
-    base: {
-        borderRadius: borderRadius.lg,
-        backgroundColor: '#fff',
-    },
-    padded: {
-        padding: spacing.md,
-    },
-    default: {
-        backgroundColor: '#fff',
-        ...shadows.small,
-    },
-    elevated: {
-        backgroundColor: '#fff',
-        ...shadows.medium,
-    },
-    outlined: {
-        backgroundColor: '#fff',
-        borderWidth: 1,
-        borderColor: colors.border.light,
-    },
-    glass: {
-        backgroundColor: colors.background.glass,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+    container: {
+        overflow: 'hidden',
     },
 });
 

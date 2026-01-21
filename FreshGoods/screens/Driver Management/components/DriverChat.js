@@ -1,200 +1,343 @@
-// src/components/DriverChat.js  (Pusher real-time)
-import React, { useEffect, useState, useRef } from 'react';
+/**
+ * DriverChat.js
+ * Premium chat interface for driver-to-vendor communication
+ */
+
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
 } from 'react-native';
 import axios from 'axios';
 import Pusher from 'pusher-js/react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { IPADD } from '../../ipadd';
+import {
+  colors,
+  gradients,
+  spacing,
+  borderRadius,
+  typography,
+  shadows,
+} from '../../theme';
+import { SlideInView, FadeInView } from '../../components/AnimatedComponents';
 
 /* ------------------------------------------------------------------ *
  * CONFIG
  * ------------------------------------------------------------------ */
-const API_BASE       = `http://${IPADD}:5000`;
-const PUSHER_KEY     = '562e97ac482dc6689524';
+const API_BASE = `http://${IPADD}:5000`;
+const PUSHER_KEY = '562e97ac482dc6689524';
 const PUSHER_CLUSTER = 'ap2';
-const CHAT_EVENT     = 'new-message';
+const CHAT_EVENT = 'new-message';
 
 /**
- * Props:
- *   driverId   – logged-in driver (string)
- *   vendorId   – chatting vendor (string)
- *   vendorName – optional for header
- *   onBack()   – optional
+ * DriverChat - Premium chat for drivers
  */
-export default function DriverChat({ driverId, vendorId, vendorName = 'Vendor', onBack }) {
+export default function DriverChat({
+  driverId,
+  vendorId,
+  vendorName = 'Vendor',
+  onBack,
+}) {
   const [messages, setMessages] = useState([]);
-  const [input,    setInput]    = useState('');
-  const [loading,  setLoading]  = useState(true);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
   const flatRef = useRef(null);
 
-  /* ---------------- 1. Fetch history + Pusher ---------------- */
+  // Fetch history + Pusher
   useEffect(() => {
     if (!vendorId || !driverId) return;
 
-    // 1-a  History
-    axios.get(`${API_BASE}/chat/history`, {
-      params: { vendorId, targetId: driverId, chatType: 'driver' },
-    })
-    .then(res => {
-      const ordered = res.data
-        .slice()
-        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-      setMessages(ordered);
-    })
-    .finally(() => setLoading(false));
+    let pusher;
+    let channel;
 
-    // 1-b  Pusher realtime
-    const pusher = new Pusher(PUSHER_KEY, {
-      cluster: PUSHER_CLUSTER,
-      authEndpoint: `${API_BASE}/chat/pusher/auth`,
-      auth: { headers: { 'x-user-id': driverId } },
-    });
+    // History
+    axios
+      .get(`${API_BASE}/chat/history`, {
+        params: { vendorId, targetId: driverId, chatType: 'driver' },
+      })
+      .then((res) => {
+        const ordered = (res.data || [])
+          .slice()
+          .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        setMessages(ordered);
+      })
+      .finally(() => setLoading(false));
 
-    const channelName = `private-chat-${vendorId}-${driverId}`;
-    const channel     = pusher.subscribe(channelName);
-
-    const handleNew = (data) =>
-      setMessages(prev => {
-        const next = [...prev, data];
-        next.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-        return next;
+    // Pusher
+    try {
+      pusher = new Pusher(PUSHER_KEY, {
+        cluster: PUSHER_CLUSTER,
+        authEndpoint: `${API_BASE}/chat/pusher/auth`,
+        auth: { headers: { 'x-user-id': driverId } },
       });
 
-    channel.bind(CHAT_EVENT, handleNew);
+      const channelName = `private-chat-${vendorId}-${driverId}`;
+      channel = pusher.subscribe(channelName);
+
+      channel.bind(CHAT_EVENT, (data) => {
+        setMessages((prev) => {
+          if (prev.some((m) => m._id === data._id)) return prev;
+          const next = [...prev, data];
+          next.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+          return next;
+        });
+      });
+    } catch (err) {
+      console.error('Pusher error:', err);
+    }
 
     return () => {
-      channel.unbind(CHAT_EVENT, handleNew);
-      pusher.unsubscribe(channelName);
-      pusher.disconnect();
+      if (channel) {
+        channel.unbind_all();
+        channel.unsubscribe();
+      }
+      if (pusher) pusher.disconnect();
     };
   }, [vendorId, driverId]);
 
-  /* ---------------- 2. Send message ---------------- */
-  const sendMessage = async () => {
-    if (!input.trim()) return;
+  // Send
+  const sendMessage = useCallback(async () => {
+    if (!input.trim() || sending) return;
+
+    const messageText = input.trim();
+    setInput('');
+    setSending(true);
+
+    const optimistic = {
+      _id: `temp-${Date.now()}`,
+      senderId: driverId,
+      content: messageText,
+      timestamp: new Date().toISOString(),
+      pending: true,
+    };
+    setMessages((prev) => [...prev, optimistic]);
+
     try {
       await axios.post(
         `${API_BASE}/chat/send`,
-        { vendorId, driverId, content: input },
-        { headers: { 'x-user-id': driverId } },
+        { vendorId, driverId, content: messageText, senderType: 'driver' },
+        { headers: { 'x-user-id': driverId } }
       );
-      setInput('');
-      // optimistic insert handled by realtime callback
+      setMessages((prev) => prev.filter((m) => m._id !== optimistic._id));
     } catch (err) {
-      console.error('Failed to send message:', err);
+      console.error('Send error:', err);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m._id === optimistic._id ? { ...m, failed: true, pending: false } : m
+        )
+      );
+    } finally {
+      setSending(false);
     }
-  };
+  }, [input, sending, vendorId, driverId]);
 
-  /* ---------------- 3. Scroll on new messages ---------------- */
+  // Auto-scroll
   useEffect(() => {
-    if (flatRef.current) flatRef.current.scrollToEnd({ animated: true });
+    if (flatRef.current && messages.length > 0) {
+      setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+    }
   }, [messages]);
 
-  /* ---------------- 4. Helpers ---------------- */
   const formatTime = (ts) =>
     new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   const renderItem = ({ item }) => {
     const mine = item.senderId === driverId;
     return (
-      <View style={[styles.bubbleWrap, mine ? styles.alignRight : styles.alignLeft]}>
-        <View style={[styles.msg, mine ? styles.right : styles.left]}>
-          <Text style={mine ? styles.txtRight : styles.txtLeft}>{item.content}</Text>
+      <SlideInView
+        direction={mine ? 'right' : 'left'}
+        delay={0}
+        style={[styles.wrap, mine ? styles.alignRight : styles.alignLeft]}
+      >
+        <View
+          style={[
+            styles.bubble,
+            mine ? styles.bubbleRight : styles.bubbleLeft,
+            item.pending && styles.pending,
+            item.failed && styles.failed,
+          ]}
+        >
+          <Text style={[styles.text, mine ? styles.textRight : styles.textLeft]}>
+            {item.content}
+          </Text>
         </View>
-        <Text style={styles.ts}>{formatTime(item.timestamp)}</Text>
-      </View>
+        <View style={styles.footer}>
+          <Text style={styles.ts}>{formatTime(item.timestamp)}</Text>
+          {item.pending && <Text style={styles.status}>⏳</Text>}
+          {item.failed && <Text style={styles.status}>❌</Text>}
+        </View>
+      </SlideInView>
     );
   };
 
-  /* ---------------- 5. UI ---------------- */
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Loading chat...</Text>
       </View>
     );
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={90}
-    >
-      {/* header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack}>
-          <Text style={styles.back}>← Back</Text>
+    <View style={styles.container}>
+      {/* Header */}
+      <LinearGradient
+        colors={gradients.forest}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.header}
+      >
+        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+          <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>{vendorName}</Text>
-      </View>
+        <View style={styles.headerInfo}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {vendorName.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+          <View>
+            <Text style={styles.headerTitle}>{vendorName}</Text>
+            <Text style={styles.headerSub}>Vendor</Text>
+          </View>
+        </View>
+      </LinearGradient>
 
-      {/* messages */}
+      {/* Messages */}
       <FlatList
         ref={flatRef}
         data={messages}
         keyExtractor={(item, idx) => item._id || String(idx)}
         renderItem={renderItem}
-        contentContainerStyle={{ padding: 12 }}
+        contentContainerStyle={styles.list}
+        ListEmptyComponent={
+          <FadeInView style={styles.empty}>
+            <Text style={styles.emptyIcon}>💬</Text>
+            <Text style={styles.emptyText}>Start a conversation</Text>
+          </FadeInView>
+        }
       />
 
-      {/* composer */}
-      <View style={styles.row}>
-        <TextInput
-          style={styles.input}
-          value={input}
-          onChangeText={setInput}
-          placeholder="Type a message…"
-          onSubmitEditing={sendMessage}
-        />
-        <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
-          <Text style={styles.sendTxt}>Send</Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+      {/* Composer */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={90}
+      >
+        <View style={styles.composer}>
+          <View style={styles.inputWrap}>
+            <TextInput
+              style={styles.input}
+              value={input}
+              onChangeText={setInput}
+              placeholder="Type a message..."
+              placeholderTextColor={colors.text.muted}
+              onSubmitEditing={sendMessage}
+              multiline
+            />
+          </View>
+          <TouchableOpacity
+            onPress={sendMessage}
+            disabled={!input.trim() || sending}
+            style={styles.sendBtn}
+          >
+            <LinearGradient
+              colors={!input.trim() || sending ? ['#9CA3AF', '#6B7280'] : gradients.primary}
+              style={styles.sendGradient}
+            >
+              <Text style={styles.sendIcon}>{sending ? '⏳' : '➤'}</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
-/* ------------------------------------------------------------------ *
- * Styles
- * ------------------------------------------------------------------ */
-const PRIMARY = '#007AFF';
-const GREY_BG = '#E4E6EB';
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
-  center:    { flex: 1, justifyContent: 'center', alignItems: 'center' },
-
+  container: { flex: 1, backgroundColor: colors.background.primary },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { ...typography.body, color: colors.text.muted, marginTop: spacing.md },
   header: {
-    flexDirection: 'row', alignItems: 'center',
-    padding: 10, backgroundColor: '#fff',
-    borderBottomWidth: 1, borderColor: '#ddd',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.md,
   },
-  back:  { marginRight: 10, color: PRIMARY, fontSize: 16 },
-  title: { fontSize: 18, fontWeight: '600' },
-
-  bubbleWrap: { marginVertical: 4, maxWidth: '75%' },
-  alignLeft:  { alignSelf: 'flex-start', alignItems: 'flex-start' },
-  alignRight: { alignSelf: 'flex-end',   alignItems: 'flex-end' },
-
-  msg: { padding: 10, borderRadius: 10 },
-  left:  { backgroundColor: GREY_BG },
-  right: { backgroundColor: PRIMARY },
-
-  txtLeft:  { color: '#000' },
-  txtRight: { color: '#fff' },
-  ts: { fontSize: 10, color: '#888', marginTop: 2 },
-
-  row: {
-    flexDirection: 'row', alignItems: 'center',
-    padding: 10, borderTopWidth: 1, borderColor: '#ddd', backgroundColor: '#fff',
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
   },
-  input: {
-    flex: 1, backgroundColor: '#f1f1f1',
-    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, marginRight: 8,
+  backIcon: { fontSize: 20, color: colors.text.light, fontWeight: 'bold' },
+  headerInfo: { flex: 1, flexDirection: 'row', alignItems: 'center' },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.sm,
   },
-  sendBtn: { backgroundColor: PRIMARY, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  sendTxt: { color: '#fff', fontWeight: 'bold' },
+  avatarText: { fontSize: 16, fontWeight: 'bold', color: colors.text.light },
+  headerTitle: { ...typography.bodyMedium, color: colors.text.light },
+  headerSub: { ...typography.caption, color: 'rgba(255,255,255,0.7)' },
+  list: { padding: spacing.md, flexGrow: 1 },
+  wrap: { marginVertical: spacing.xs, maxWidth: '80%' },
+  alignLeft: { alignSelf: 'flex-start', alignItems: 'flex-start' },
+  alignRight: { alignSelf: 'flex-end', alignItems: 'flex-end' },
+  bubble: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: borderRadius.lg,
+    ...shadows.sm,
+  },
+  bubbleLeft: { backgroundColor: colors.background.card, borderBottomLeftRadius: spacing.xs },
+  bubbleRight: { backgroundColor: colors.primary, borderBottomRightRadius: spacing.xs },
+  pending: { opacity: 0.7 },
+  failed: { backgroundColor: colors.errorBg, borderWidth: 1, borderColor: colors.error },
+  text: { ...typography.body, lineHeight: 22 },
+  textLeft: { color: colors.text.primary },
+  textRight: { color: colors.text.light },
+  footer: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.xxs },
+  ts: { ...typography.caption, color: colors.text.muted, marginRight: spacing.xs },
+  status: { fontSize: 10, color: colors.text.muted },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: spacing.xxl * 2 },
+  emptyIcon: { fontSize: 56, marginBottom: spacing.md },
+  emptyText: { ...typography.h3, color: colors.text.muted },
+  composer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    padding: spacing.md,
+    backgroundColor: colors.background.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.border.light,
+  },
+  inputWrap: {
+    flex: 1,
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginRight: spacing.sm,
+  },
+  input: { ...typography.body, color: colors.text.primary, minHeight: 24 },
+  sendBtn: { borderRadius: 24, overflow: 'hidden' },
+  sendGradient: { width: 48, height: 48, justifyContent: 'center', alignItems: 'center' },
+  sendIcon: { fontSize: 20, color: colors.text.light },
 });

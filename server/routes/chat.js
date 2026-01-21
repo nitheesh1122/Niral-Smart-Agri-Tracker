@@ -2,14 +2,45 @@ const express = require('express');
 const router = express.Router();
 const pusher = require('../utils/pusher');
 const Message = require('../models/Message');
-const Vendor = require('../models/vendorModel'); 
-const Customer = require('../models/customerModel'); 
+const Vendor = require('../models/vendorModel');
+const Customer = require('../models/customerModel');
 const Driver = require('../models/driverModel'); // Assuming you have a Driver model
-// Authenticate Pusher private channels
+
+/**
+ * Send push notification via Expo Push API
+ */
+async function sendPushNotification(expoPushToken, { title, body }) {
+  if (!expoPushToken || !expoPushToken.startsWith('ExponentPushToken')) {
+    return; // Skip invalid tokens
+  }
+
+  try {
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Accept-encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: expoPushToken,
+        sound: 'default',
+        title,
+        body,
+      }),
+    });
+    const data = await response.json();
+    console.log('Push notification sent:', data);
+  } catch (err) {
+    console.error('Push notification error:', err);
+    // Don't throw - push notification failure shouldn't break the chat
+  }
+}
+
 router.post('/pusher/auth', (req, res) => {
   const { socket_id, channel_name } = req.body;
   const userId = req.headers['x-user-id'];
-  
+
   if (!channel_name.includes(userId)) {
     return res.status(403).send('Unauthorized');
   }
@@ -39,19 +70,19 @@ router.post('/send', async (req, res) => {
     const msg = await Message.create({
       vendorId,
       customerId: customerId || undefined,
-      driverId:   driverId   || undefined,
+      driverId: driverId || undefined,
       content,
       senderId,
     });
 
     /* 2️⃣ Real-time update via Pusher */
     const targetId = customerId || driverId;
-    const channel  = `private-chat-${vendorId}-${targetId}`;
+    const channel = `private-chat-${vendorId}-${targetId}`;
     pusher.trigger(channel, 'new-message', msg);
 
     /* 3️⃣ Push notification */
     const TargetModel = customerId ? Customer : Driver;
-    const targetUser  = await TargetModel.findById(targetId).select('expoPushToken');
+    const targetUser = await TargetModel.findById(targetId).select('expoPushToken');
 
     if (targetUser?.expoPushToken) {
       await sendPushNotification(targetUser.expoPushToken, {
@@ -80,7 +111,7 @@ router.get('/history', async (req, res) => {
 
   const filter = { vendorId };
   if (chatType === 'customer') filter.customerId = targetId;
-  if (chatType === 'driver')   filter.driverId   = targetId;
+  if (chatType === 'driver') filter.driverId = targetId;
 
   try {
     const history = await Message.find(filter).sort({ createdAt: 1 });

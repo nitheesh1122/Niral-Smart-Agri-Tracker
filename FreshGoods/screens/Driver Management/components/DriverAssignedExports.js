@@ -16,8 +16,7 @@ import {
   Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
 
 const DriverAssignedExports = () => {
@@ -37,7 +36,7 @@ const DriverAssignedExports = () => {
       const driverId = await AsyncStorage.getItem('userId');
       if (!driverId) return;
 
-      const res = await axios.get(`http://${IPADD}:5000/api/driver/export/driver/${driverId}`);
+      const res = await api.get(`/api/driver/export/driver/${driverId}`);
       setExports(res.data || []);
     } catch (err) {
       console.error('Failed to fetch assigned exports:', err);
@@ -89,7 +88,7 @@ const DriverAssignedExports = () => {
   const handleAccept = async (exportId) => {
     setLoadingExportId(exportId);
     try {
-      await axios.put(`http://${IPADD}:5000/api/driver/export/accept/${exportId}`);
+      await api.put(`/api/driver/export/accept/${exportId}`);
       Alert.alert('Success', 'Export accepted!');
       setExports((prev) =>
         prev.map((exp) =>
@@ -117,7 +116,7 @@ const DriverAssignedExports = () => {
     setShowRejectModal(false);
 
     try {
-      await axios.put(`http://${IPADD}:5000/api/driver/export/reject/${rejectExportId}`, {
+      await api.put(`/api/driver/export/reject/${rejectExportId}`, {
         reason: rejectReason || 'No reason provided',
       });
       Alert.alert('Rejected', 'Export has been rejected');
@@ -134,7 +133,7 @@ const DriverAssignedExports = () => {
   const handleStartExport = async (exportId) => {
     setLoadingExportId(exportId);
     try {
-      await axios.put(`http://${IPADD}:5000/api/driver/export/start/${exportId}`, {
+      await api.put(`/api/driver/export/start/${exportId}`, {
         status: 'Started',
       });
       Alert.alert('Success', 'Export marked as Started');
@@ -154,7 +153,7 @@ const DriverAssignedExports = () => {
   const handleCompleteExport = async (exportId) => {
     setLoadingExportId(exportId);
     try {
-      await axios.put(`http://${IPADD}:5000/api/driver/export/complete/${exportId}`);
+      await api.put(`/api/driver/export/complete/${exportId}`);
       Alert.alert('Success', 'Export marked as Completed! 🎉');
       setExports((prev) =>
         prev.map((exp) =>

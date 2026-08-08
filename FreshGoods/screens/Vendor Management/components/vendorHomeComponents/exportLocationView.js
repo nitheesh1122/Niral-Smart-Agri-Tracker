@@ -15,8 +15,8 @@ import {
   TextInput,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
-import axios from 'axios';
-import { IPADD } from '../../../ipadd';
+import axios from 'axios'; // used only for the external OpenRouteService call below
+import api from '../../../services/api';
 
 const ORS_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjRkZjk4MGNjNTZhZTAzYTE3ZGI0NDJiMjVkNzAzNGM5YTczOWIzODlhOTg5NGM1YzZhODYzZWQ0IiwiaCI6Im11cm11cjY0In0=';
 
@@ -258,8 +258,8 @@ const EnhancedExportLocationView = ({ selectedExport, onBack }) => {
 
   const fetchIntermediateLocations = async () => {
     try {
-      const res = await axios.get(
-        `http://${IPADD}:5000/api/vendor/export/intermediateLocation/get/${selectedExport._id}`
+      const res = await api.get(
+        `/api/vendor/export/intermediateLocation/get/${selectedExport._id}`
       );
       if (res.data) setIntermediateLocations(res.data);
     } catch (err) {
@@ -274,8 +274,8 @@ const EnhancedExportLocationView = ({ selectedExport, onBack }) => {
     }
 
     try {
-      await axios.post(
-        `http://${IPADD}:5000/api/vendor/export/intermediateLocation/push/${selectedExport._id}`,
+      await api.post(
+        `/api/vendor/export/intermediateLocation/push/${selectedExport._id}`,
         { ...selectedLocation, name: locationName || `Waypoint ${intermediateLocations.length + 1}` }
       );
       await fetchIntermediateLocations();
@@ -289,8 +289,13 @@ const EnhancedExportLocationView = ({ selectedExport, onBack }) => {
 
   const fetchLiveLocation = async () => {
     try {
-      const res = await axios.get(
-        `http://${IPADD}:5000/api/driver/device/location-data/${selectedExport._id}`
+      // Fixed: this vendor-side screen was incorrectly calling the
+      // driver-prefixed endpoint (which now correctly requires a Driver
+      // role token and would 403 for a vendor). The vendor route mounted
+      // under /api/vendor exposes the same data for the vendor who owns
+      // this export.
+      const res = await api.get(
+        `/api/vendor/device/location-data/${selectedExport._id}`
       );
       const locations = res.data;
       if (locations?.length > 0) {

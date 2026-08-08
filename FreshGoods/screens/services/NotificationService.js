@@ -5,9 +5,8 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { IPADD } from '../ipadd';
+import api from './api';
 
 // Configure how notifications are displayed when app is in foreground
 Notifications.setNotificationHandler({
@@ -140,7 +139,7 @@ class NotificationService {
                 return;
             }
 
-            await axios.post(`http://${IPADD}:5000/api/user/token`, {
+            await api.post('/api/user/token', {
                 userId,
                 pushToken: token,
             });

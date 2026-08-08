@@ -15,8 +15,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import {
     colors,
     gradients,
@@ -82,9 +81,7 @@ const VendorAnalytics = ({ onBack }) => {
             const vendorId = await AsyncStorage.getItem('userId');
 
             // Fetch exports data
-            const res = await axios.get(
-                `http://${IPADD}:5000/api/vendor/exports/${vendorId}`
-            );
+            const res = await api.get(`/api/vendor/exports/${vendorId}`);
             const exports = res.data || [];
 
             // Calculate stats

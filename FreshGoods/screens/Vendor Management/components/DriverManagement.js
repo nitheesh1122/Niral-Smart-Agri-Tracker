@@ -17,9 +17,8 @@ import {
   RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import {
   colors,
   gradients,
@@ -167,7 +166,7 @@ const DriverManagement = () => {
     try {
       const id = await AsyncStorage.getItem('userId');
       setVendorId(id);
-      const res = await axios.get(`http://${IPADD}:5000/api/vendor/all?vendorId=${id}`);
+      const res = await api.get(`/api/vendor/all?vendorId=${id}`);
       setDrivers(res.data || []);
     } catch (err) {
       console.error('Error fetching vendor drivers:', err);
@@ -179,7 +178,7 @@ const DriverManagement = () => {
 
   const fetchAllDrivers = async () => {
     try {
-      const res = await axios.get(`http://${IPADD}:5000/api/vendor/available-drivers`);
+      const res = await api.get('/api/vendor/available-drivers');
       setAllDrivers(res.data || []);
     } catch (err) {
       console.error('Error fetching all drivers:', err);
@@ -188,7 +187,7 @@ const DriverManagement = () => {
 
   const handleAddDriver = async (driverId) => {
     try {
-      await axios.post(`http://${IPADD}:5000/api/vendor/add-driver`, {
+      await api.post('/api/vendor/add-driver', {
         vendorId,
         driverId,
       });
@@ -212,7 +211,7 @@ const DriverManagement = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await axios.post(`http://${IPADD}:5000/api/vendor/remove-driver`, {
+              await api.post('/api/vendor/remove-driver', {
                 vendorId,
                 driverId,
               });

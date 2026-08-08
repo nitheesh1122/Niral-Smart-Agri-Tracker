@@ -13,6 +13,9 @@ const Export = require('../models/ExportModel');
  */
 router.get('/profile/:customerId', async (req, res) => {
     try {
+        if (req.params.customerId !== req.user.id) {
+            return res.status(403).json({ error: 'Access denied. Not your account.' });
+        }
         const customer = await Customer.findById(req.params.customerId).select('-password');
         if (!customer) {
             return res.status(404).json({ error: 'Customer not found' });
@@ -125,6 +128,9 @@ router.get('/track/:exportId', async (req, res) => {
  */
 router.get('/dashboard/:customerId', async (req, res) => {
     try {
+        if (req.params.customerId !== req.user.id) {
+            return res.status(403).json({ error: 'Access denied. Not your account.' });
+        }
         const customer = await Customer.findById(req.params.customerId).select('-password');
         if (!customer) {
             return res.status(404).json({ error: 'Customer not found' });

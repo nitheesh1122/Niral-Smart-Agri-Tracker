@@ -39,9 +39,12 @@ async function sendPushNotification(expoPushToken, { title, body }) {
 
 router.post('/pusher/auth', (req, res) => {
   const { socket_id, channel_name } = req.body;
-  const userId = req.headers['x-user-id'];
+  // Identity comes from the verified JWT (set by authMiddleware), never
+  // from a client-supplied header — a client can no longer authenticate
+  // as an arbitrary user by simply changing a header value.
+  const userId = req.user.id;
 
-  if (!channel_name.includes(userId)) {
+  if (!channel_name || !channel_name.includes(userId)) {
     return res.status(403).send('Unauthorized');
   }
 
@@ -56,13 +59,20 @@ router.post('/pusher/auth', (req, res) => {
  * -------------------------------------------------------- */
 router.post('/send', async (req, res) => {
   const { vendorId, customerId, driverId, content } = req.body;
-  const senderId = req.headers['x-user-id'];
+  const senderId = req.user.id;
 
   // Validate
   if (!vendorId || !content || (!customerId && !driverId)) {
     return res.status(400).json({
       error: 'vendorId, content, and a targetId are required',
     });
+  }
+
+  // The authenticated sender must actually be a participant of this
+  // conversation (either the vendor, or the customer/driver on the
+  // other end) — prevents posting into someone else's chat thread.
+  if (![vendorId, customerId, driverId].includes(senderId)) {
+    return res.status(403).json({ error: 'Access denied. Not a participant of this conversation.' });
   }
 
   try {
@@ -107,6 +117,9 @@ router.get('/history', async (req, res) => {
 
   if (!vendorId || !targetId || !chatType) {
     return res.status(400).json({ error: 'vendorId, targetId, chatType are required' });
+  }
+  if (![vendorId, targetId].includes(req.user.id)) {
+    return res.status(403).json({ error: 'Access denied. Not a participant of this conversation.' });
   }
 
   const filter = { vendorId };
@@ -160,6 +173,9 @@ router.get('/vendor-drivers', async (req, res) => {
   if (!vendorId) {
     return res.status(400).json({ error: 'vendorId is required' });
   }
+  if (vendorId !== req.user.id) {
+    return res.status(403).json({ error: 'Access denied. Not your account.' });
+  }
 
   try {
     const vendor = await Vendor.findById(vendorId).populate({
@@ -183,6 +199,9 @@ router.get('/vendors/by-driver', async (req, res) => {
 
   if (!driverId) {
     return res.status(400).json({ error: 'driverId is required' });
+  }
+  if (driverId !== req.user.id) {
+    return res.status(403).json({ error: 'Access denied. Not your account.' });
   }
 
   try {

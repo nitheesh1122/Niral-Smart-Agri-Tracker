@@ -8,8 +8,7 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
-import axios from 'axios';
-import { IPADD } from '../../../ipadd';
+import api from '../../../services/api';
 import { AnimatedCircularProgress } from 'react-native-circular-progress';
 
 const DriverExportHealth = ({ exportId, onBack }) => {
@@ -19,9 +18,7 @@ const DriverExportHealth = ({ exportId, onBack }) => {
   useEffect(() => {
     const fetchSensorData = async () => {
       try {
-        const res = await axios.get(
-          `http://${IPADD}:5000/api/driver/device/sensor-data/${exportId}`
-        );
+        const res = await api.get(`/api/driver/device/sensor-data/${exportId}`);
         const dataArray = res.data;
         if (Array.isArray(dataArray) && dataArray.length > 0) {
           setSensorData(dataArray[dataArray.length - 1]); // latest one

@@ -5,6 +5,12 @@ const Driver = require('../models/driverModel');
 const Vehicle = require('../models/VehicleModel');
 const Device = require('../models/deviceModel');
 const Export = require('../models/ExportModel');
+const { authorize } = require('../middleware/auth');
+
+// Every route in this file is vendor-only. Scoped with router.use() rather
+// than at the server.js mount point, because serviceRequestRoutes.js shares
+// the same '/api/vendor' prefix and needs different per-route roles.
+router.use(authorize('Vendor'));
 
 // Driver Management Routes For Vendor
 // GET /api/vendor/all — Get all drivers for the vendor
@@ -14,6 +20,9 @@ router.get('/all', async (req, res) => {
 
     if (!vendorId) {
       return res.status(400).json({ error: 'Vendor ID is required' });
+    }
+    if (vendorId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your account.' });
     }
 
     const vendor = await Vendor.findById(vendorId).populate('drivers');
@@ -45,6 +54,9 @@ router.post('/add-driver', async (req, res) => {
   if (!vendorId || !driverId) {
     return res.status(400).json({ error: 'Missing vendorId or driverId' });
   }
+  if (vendorId !== req.user.id) {
+    return res.status(403).json({ error: 'Access denied. Not your account.' });
+  }
 
   try {
     const vendor = await Vendor.findById(vendorId);
@@ -69,6 +81,9 @@ router.post('/remove-driver', async (req, res) => {
   if (!vendorId || !driverId) {
     return res.status(400).json({ error: 'Missing vendorId or driverId' });
   }
+  if (vendorId !== req.user.id) {
+    return res.status(403).json({ error: 'Access denied. Not your account.' });
+  }
 
   try {
     const vendor = await Vendor.findById(vendorId);
@@ -89,6 +104,10 @@ router.post('/remove-driver', async (req, res) => {
 // ✅ Get all vehicles assigned to a vendor
 router.get('/vehicles', async (req, res) => {
   const { vendorId } = req.query;
+
+  if (vendorId && vendorId !== req.user.id) {
+    return res.status(403).json({ message: 'Access denied. Not your account.' });
+  }
 
   try {
     const vendor = await Vendor.findById(vendorId).populate('vehicles');
@@ -113,6 +132,13 @@ router.get('/available-devices', async (req, res) => {
 // ✅ Add a vehicle and assign to vendor
 router.post('/add-vehicle', async (req, res) => {
   const { _id, vehicleNumber, brand, capacity, deviceId, vendorId } = req.body;
+
+  if (!_id || !vehicleNumber || !brand || !capacity || !deviceId || !vendorId) {
+    return res.status(400).json({ message: 'All fields are required' });
+  }
+  if (vendorId !== req.user.id) {
+    return res.status(403).json({ message: 'Access denied. Not your account.' });
+  }
 
   try {
     const vendor = await Vendor.findById(vendorId);
@@ -156,6 +182,9 @@ router.get('/exports', async (req, res) => {
     if (!vendorId) {
       return res.status(400).json({ error: 'Vendor ID is required' });
     }
+    if (vendorId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your account.' });
+    }
 
     const exports = await Export.find({ vendorId })
       .populate('driver', 'name')
@@ -175,6 +204,9 @@ router.get('/availableResources', async (req, res) => {
 
     if (!vendorId || !startDate || !endDate) {
       return res.status(400).json({ error: 'Vendor ID, start date, and end date are required' });
+    }
+    if (vendorId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your account.' });
     }
 
     const start = new Date(startDate);
@@ -221,6 +253,9 @@ router.get('/availableResources', async (req, res) => {
 router.post('/export/add/:vendorId', async (req, res) => {
   try {
     const { vendorId } = req.params;
+    if (vendorId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your account.' });
+    }
     const {
       itemName, startDate, endDate, quantity, costPrice, salePrice,
       driver, vehicle, salary, startLocation, endLocation
@@ -300,6 +335,9 @@ router.get('/export/:id', async (req, res) => {
     if (!exportData) {
       return res.status(404).json({ error: 'Export not found' });
     }
+    if (exportData.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
+    }
 
     res.json(exportData);
   } catch (error) {
@@ -318,15 +356,19 @@ router.put('/export/:id', async (req, res) => {
       return res.status(400).json({ error: 'Valid status is required' });
     }
 
+    const existing = await Export.findById(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Export not found' });
+    }
+    if (existing.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
+    }
+
     const updatedExport = await Export.findByIdAndUpdate(
       id,
       { status },
       { new: true }
     ).populate('driver', 'name').populate('vehicle', 'vehicleNumber model');
-
-    if (!updatedExport) {
-      return res.status(404).json({ error: 'Export not found' });
-    }
 
     res.json({ message: 'Export updated successfully', export: updatedExport });
   } catch (error) {
@@ -343,6 +385,9 @@ router.delete('/export/:id', async (req, res) => {
 
     if (!exportData) {
       return res.status(404).json({ error: 'Export not found' });
+    }
+    if (exportData.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
     }
 
     if (exportData.status !== 'Pending') {
@@ -374,6 +419,10 @@ router.delete('/export/:id', async (req, res) => {
 router.get('/export/passedstatus/:vendorId', async (req, res) => {
   const { vendorId } = req.params;
 
+  if (vendorId !== req.user.id) {
+    return res.status(403).json({ message: 'Access denied. Not your account.' });
+  }
+
   try {
     const startedExports = await Export.find({
       vendorId: vendorId,
@@ -397,6 +446,9 @@ router.get('/device/sensor-data/:exportId', async (req, res) => {
   try {
     const exp = await Export.findById(req.params.exportId);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (exp.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
+    }
 
     const vehicle = await Vehicle.findById(exp.vehicle);
     if (!vehicle || !vehicle.deviceId)
@@ -447,6 +499,9 @@ router.get('/device/location-data/:exportId', async (req, res) => {
   try {
     const exp = await Export.findById(req.params.exportId);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (exp.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
+    }
 
     const vehicle = await Vehicle.findById(exp.vehicle);
     if (!vehicle || !vehicle.deviceId)
@@ -473,6 +528,14 @@ router.post('/export/intermediateLocation/push/:export_id', async (req, res) => 
   }
 
   try {
+    const existing = await Export.findById(export_id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Export not found' });
+    }
+    if (existing.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
+    }
+
     const updatedExport = await Export.findByIdAndUpdate(
       export_id,
       {
@@ -482,10 +545,6 @@ router.post('/export/intermediateLocation/push/:export_id', async (req, res) => 
       },
       { new: true } // return the updated document
     );
-
-    if (!updatedExport) {
-      return res.status(404).json({ error: 'Export not found' });
-    }
 
     return res.status(200).json({
       message: 'Intermediate location added successfully',
@@ -507,6 +566,9 @@ router.get('/export/intermediateLocation/get/:exportId', async (req, res) => {
     if (!exp) {
       return res.status(404).json({ error: 'Export not found' });
     }
+    if (exp.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
+    }
 
     return res.json(exp.intermediateLocations);
   } catch (err) {
@@ -518,6 +580,9 @@ router.get('/export/intermediateLocation/get/:exportId', async (req, res) => {
 // GET all exports for a vendor (with driver info)
 router.get('/exports/:vendorId', async (req, res) => {
   try {
+    if (req.params.vendorId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your account.' });
+    }
     const exports = await Export.find({ vendorId: req.params.vendorId })
       .populate('driver', 'name mobileNo')
       .populate('vehicle', 'vehicleNumber')
@@ -534,6 +599,9 @@ router.put('/export/start/:exportId', async (req, res) => {
   try {
     const exp = await Export.findById(req.params.exportId);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (exp.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
+    }
 
     if (exp.driverResponse !== 'accepted') {
       return res.status(400).json({ error: 'Driver must accept the export first' });
@@ -561,6 +629,9 @@ router.put('/export/complete/:exportId', async (req, res) => {
   try {
     const exp = await Export.findById(req.params.exportId);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (exp.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
+    }
 
     if (exp.status !== 'Started') {
       return res.status(400).json({ error: 'Export must be started before completing' });

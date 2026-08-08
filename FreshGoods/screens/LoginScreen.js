@@ -16,10 +16,9 @@ import {
 import { TextInput, Button } from 'react-native-paper';
 import { BlurView } from 'expo-blur';
 import { StatusBar } from 'expo-status-bar';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { IPADD } from './ipadd';
+import api from './services/api';
 import { registerForPushNotificationsAsync } from './utils/notification';
 import { colors, spacing, typography, borderRadius } from './theme';
 
@@ -50,7 +49,7 @@ export default function LoginScreen({ navigation, route }) {
     try {
       setLoading(true);
 
-      const { data } = await axios.post(`http://${IPADD}:5000/api/login`, {
+      const { data } = await api.post('/api/login', {
         username,
         password,
         role: selectedRole,
@@ -61,23 +60,30 @@ export default function LoginScreen({ navigation, route }) {
         return;
       }
 
-      const { user } = data;
+      const { user, token } = data;
 
-      // Register for push notifications
-      const token = await registerForPushNotificationsAsync();
-      if (token) {
-        await axios.post(`http://${IPADD}:5000/api/user/token`, {
-          userId: user._id,
-          pushToken: token,
-          role: selectedRole,
-        });
-      }
-
-      // Persist auth info
+      // Persist auth info FIRST — every authenticated request made below
+      // (and by every other screen from now on) reads this token via
+      // services/api.js's request interceptor.
       await AsyncStorage.multiSet([
+        ['token', token],
         ['userId', user._id],
         ['role', selectedRole],
       ]);
+
+      // Register for push notifications (best-effort; login must still
+      // succeed if this fails, e.g. on an emulator or if permission is denied)
+      try {
+        const pushToken = await registerForPushNotificationsAsync();
+        if (pushToken) {
+          await api.post('/api/user/token', {
+            userId: user._id,
+            pushToken,
+          });
+        }
+      } catch (pushErr) {
+        console.warn('Push token registration failed:', pushErr.message);
+      }
 
       // Navigate to role-specific home
       switch (selectedRole) {
@@ -88,7 +94,7 @@ export default function LoginScreen({ navigation, route }) {
 
     } catch (err) {
       console.error('Login error:', err.message);
-      Alert.alert('Error', err.response?.data?.message || 'Server error');
+      Alert.alert('Error', err.response?.data?.message || err.message || 'Server error');
     } finally {
       setLoading(false);
     }

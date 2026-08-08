@@ -22,6 +22,7 @@ import CustomerChat from './screens/Customer Management/components/CustomerChatP
 
 /* --- services --- */
 import NotificationService from './screens/services/NotificationService';
+import ErrorBoundary from './screens/components/ErrorBoundary';
 
 /* --- navigation setup --- */
 const Stack = createNativeStackNavigator();
@@ -122,12 +123,14 @@ const AuthNavigator = () => {
 
 export default function App() {
   return (
-    <PaperProvider>
-      <NavigationContainer ref={navigationRef}>
-        <StatusBar style="light" backgroundColor="#1B3A57" />
-        <AuthNavigator />
-      </NavigationContainer>
-    </PaperProvider>
+    <ErrorBoundary>
+      <PaperProvider>
+        <NavigationContainer ref={navigationRef}>
+          <StatusBar style="light" backgroundColor="#1B3A57" />
+          <AuthNavigator />
+        </NavigationContainer>
+      </PaperProvider>
+    </ErrorBoundary>
   );
 }
 

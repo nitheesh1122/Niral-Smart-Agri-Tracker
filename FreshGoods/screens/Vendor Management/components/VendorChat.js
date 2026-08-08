@@ -17,10 +17,10 @@ import {
   Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 import Pusher from 'pusher-js';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
+import { API_BASE_URL } from '../../config/env';
 import {
   colors,
   gradients,
@@ -34,7 +34,7 @@ import { SlideInView, FadeInView } from '../../components/AnimatedComponents';
 /* ------------------------------------------------------------------ *
  * CONFIG
  * ------------------------------------------------------------------ */
-const API_BASE = `http://${IPADD}:5000`;
+const API_BASE = API_BASE_URL;
 const PUSHER_KEY = '562e97ac482dc6689524';
 const PUSHER_CLUSTER = 'ap2';
 const CHAT_EVENT = 'new-message';
@@ -69,31 +69,39 @@ export default function VendorChat({
     const channelName = `private-chat-${vendorId}-${targetId}`;
     let pusher;
     let channel;
+    let cancelled = false;
 
-    try {
-      pusher = new Pusher(PUSHER_KEY, {
-        cluster: PUSHER_CLUSTER,
-        authEndpoint: `${API_BASE}/chat/pusher/auth`,
-        auth: { headers: { 'x-user-id': vendorId } },
-      });
+    (async () => {
+      // Pusher's authorizer makes its own HTTP request outside of our axios
+      // instance, so the JWT has to be attached to it explicitly.
+      const token = await AsyncStorage.getItem('token');
+      if (cancelled) return;
 
-      channel = pusher.subscribe(channelName);
-
-      channel.bind(CHAT_EVENT, (data) => {
-        setMessages((prev) => {
-          if (prev.some((m) => m._id === data._id)) return prev;
-          const next = [...prev, data];
-          next.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-          return next;
+      try {
+        pusher = new Pusher(PUSHER_KEY, {
+          cluster: PUSHER_CLUSTER,
+          authEndpoint: `${API_BASE}/chat/pusher/auth`,
+          auth: { headers: { Authorization: `Bearer ${token}` } },
         });
-      });
-    } catch (err) {
-      console.error('Pusher error:', err);
-    }
+
+        channel = pusher.subscribe(channelName);
+
+        channel.bind(CHAT_EVENT, (data) => {
+          setMessages((prev) => {
+            if (prev.some((m) => m._id === data._id)) return prev;
+            const next = [...prev, data];
+            next.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            return next;
+          });
+        });
+      } catch (err) {
+        console.error('Pusher error:', err);
+      }
+    })();
 
     // History
-    axios
-      .get(`${API_BASE}/chat/history`, {
+    api
+      .get('/chat/history', {
         params: { vendorId, targetId, chatType },
       })
       .then((res) => {
@@ -105,6 +113,7 @@ export default function VendorChat({
       .finally(() => setLoading(false));
 
     return () => {
+      cancelled = true;
       if (channel) {
         channel.unbind_all();
         channel.unsubscribe();
@@ -135,9 +144,7 @@ export default function VendorChat({
     if (chatType === 'driver') body.driverId = targetId;
 
     try {
-      await axios.post(`${API_BASE}/chat/send`, body, {
-        headers: { 'x-user-id': vendorId },
-      });
+      await api.post('/chat/send', body);
       setMessages((prev) => prev.filter((m) => m._id !== optimistic._id));
     } catch (err) {
       console.error('Send error', err);

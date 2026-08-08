@@ -19,9 +19,8 @@ import { StatusBar } from 'expo-status-bar';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import RNPickerSelect from 'react-native-picker-select';
-import axios from 'axios';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { IPADD } from './ipadd';
+import api from './services/api';
 import { colors, spacing, typography, borderRadius } from './theme';
 
 const backgroundImage = require('../assets/image1.jpg');
@@ -133,7 +132,7 @@ export default function SignupScreen() {
 
     try {
       setLoading(true);
-      await axios.post(`http://${IPADD}:5000/api/signup`, formData);
+      await api.post('/api/signup', formData);
       Alert.alert('Success', 'Account created successfully!', [
         { text: 'OK', onPress: () => navigation.navigate('Login', { selectedRole }) }
       ]);

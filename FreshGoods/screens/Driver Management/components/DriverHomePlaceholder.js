@@ -15,9 +15,8 @@ import {
   RefreshControl,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import {
   colors,
   gradients,
@@ -86,9 +85,7 @@ const DriverHomePlaceholder = () => {
       if (name) setDriverName(name);
       if (!driverId) return;
 
-      const res = await axios.get(
-        `http://${IPADD}:5000/api/driver/export/driver/${driverId}`
-      );
+      const res = await api.get(`/api/driver/export/driver/${driverId}`);
       const started = res.data.find((exp) => exp.status === 'Started');
       setOngoingExport(started || null);
     } catch (err) {
@@ -122,9 +119,7 @@ const DriverHomePlaceholder = () => {
           onPress: async () => {
             setEndingTrip(true);
             try {
-              await axios.put(
-                `http://${IPADD}:5000/api/driver/export/complete/${ongoingExport._id}`
-              );
+              await api.put(`/api/driver/export/complete/${ongoingExport._id}`);
               Alert.alert('Success! 🎉', 'Delivery completed successfully!');
               setOngoingExport(null);
             } catch (err) {

@@ -9,6 +9,9 @@ const Export = require('../models/ExportModel');
 
 router.get('/export/driver/:driverId', async (req, res) => {
   try {
+    if (req.params.driverId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your account.' });
+    }
     const exports = await Export.find({ driver: req.params.driverId })
       .populate('vendorId', 'name mobileNo'); // ✅ populate from vendorId
 
@@ -22,6 +25,9 @@ router.get('/export/driver/:driverId', async (req, res) => {
 // Get driver profile
 router.get('/profile/:driverId', async (req, res) => {
   try {
+    if (req.params.driverId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your account.' });
+    }
     const driver = await Driver.findById(req.params.driverId).select('-password');
     if (!driver) return res.status(404).json({ error: 'Driver not found' });
     res.json(driver);
@@ -115,6 +121,9 @@ router.put('/export/start/:id', async (req, res) => {
   try {
     const exp = await Export.findById(req.params.id);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (!exp.driver || exp.driver.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
+    }
 
     const routes = await getDistrictsBetween(exp.startLocation, exp.endLocation);
 
@@ -136,6 +145,9 @@ router.put('/export/accept/:id', async (req, res) => {
   try {
     const exp = await Export.findById(req.params.id);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (!exp.driver || exp.driver.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
+    }
 
     if (exp.driverResponse === 'accepted') {
       return res.status(400).json({ error: 'Export already accepted' });
@@ -161,6 +173,9 @@ router.put('/export/reject/:id', async (req, res) => {
 
     const exp = await Export.findById(req.params.id);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (!exp.driver || exp.driver.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
+    }
 
     if (exp.driverResponse === 'rejected') {
       return res.status(400).json({ error: 'Export already rejected' });
@@ -188,6 +203,9 @@ router.put('/export/complete/:id', async (req, res) => {
   try {
     const exp = await Export.findById(req.params.id);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (!exp.driver || exp.driver.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
+    }
 
     if (exp.status === 'Completed') {
       return res.status(400).json({ error: 'Export already completed' });
@@ -216,6 +234,9 @@ router.get('/device/sensor-data/:exportId', async (req, res) => {
   try {
     const exp = await Export.findById(req.params.exportId);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (!exp.driver || exp.driver.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
+    }
 
     const vehicle = await Vehicle.findById(exp.vehicle);
     if (!vehicle || !vehicle.deviceId)
@@ -268,6 +289,9 @@ router.get('/device/location-data/:exportId', async (req, res) => {
   try {
     const exp = await Export.findById(req.params.exportId);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (!exp.driver || exp.driver.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
+    }
 
     const vehicle = await Vehicle.findById(exp.vehicle);
     if (!vehicle || !vehicle.deviceId)
@@ -288,6 +312,9 @@ router.get('/map/export/:id', async (req, res) => {
   try {
     const exp = await Export.findById(req.params.id);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (!exp.driver || exp.driver.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
+    }
     res.json(exp);
   } catch (err) {
     console.error(err);

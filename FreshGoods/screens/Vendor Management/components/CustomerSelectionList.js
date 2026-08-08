@@ -8,14 +8,8 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from 'react-native';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { IPADD } from '../../ipadd';              // or wherever you keep it
-
-/* ------------------------------------------------------------------ *
- *  CONFIG
- * ------------------------------------------------------------------ */
-const API_BASE = `http://${IPADD}:5000`;
+import api from '../../services/api';
 
 /**
  * Props:
@@ -46,7 +40,7 @@ const CustomerSelectList = ({ onSelectCustomer, vendorId: propVendorId }) => {
     (async () => {
       setLoading(true);
       try {
-        const { data } = await axios.get(`${API_BASE}/chat/customers/get`, {
+        const { data } = await api.get('/chat/customers/get', {
           params: { vendorId },
         });
         setCustomers(data);

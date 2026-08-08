@@ -15,9 +15,8 @@ import {
   TextInput,
   Animated,
 } from 'react-native';
-import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import {
   colors,
   gradients,
@@ -167,9 +166,7 @@ const CustomerViewGoods = ({ onTrack }) => {
 
   const fetchExports = useCallback(async () => {
     try {
-      const response = await axios.get(
-        `http://${IPADD}:5000/api/customer/exports/available`
-      );
+      const response = await api.get('/api/customer/exports/available');
       setExports(response.data || []);
       setFilteredExports(response.data || []);
       setError(null);

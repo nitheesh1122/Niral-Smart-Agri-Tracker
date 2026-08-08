@@ -89,7 +89,7 @@ const SidebarMenu = ({
                         onClose();
                         navigation?.reset({
                             index: 0,
-                            routes: [{ name: 'Login' }],
+                            routes: [{ name: 'Login', params: { selectedRole: userRole } }],
                         });
                     },
                 },

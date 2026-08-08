@@ -9,11 +9,8 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from 'react-native';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { IPADD } from '../../ipadd';
-
-const API_BASE = `http://${IPADD}:5000`;
+import api from '../../services/api';
 
 /**
  * Props
@@ -40,7 +37,7 @@ const DriverSelectList = ({ onSelect, vendorId: propVendorId }) => {
     (async () => {
       setLoading(true);
       try {
-        const { data } = await axios.get(`${API_BASE}/chat/vendor-drivers`, {
+        const { data } = await api.get('/chat/vendor-drivers', {
           params: { vendorId },
         });
         setDrivers(data);

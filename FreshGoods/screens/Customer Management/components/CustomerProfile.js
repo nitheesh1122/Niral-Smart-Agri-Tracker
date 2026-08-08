@@ -20,9 +20,8 @@ import {
     Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import {
     colors,
     gradients,
@@ -131,8 +130,8 @@ const CustomerProfile = () => {
             if (!customerId) return;
 
             const [profileRes, dashboardRes] = await Promise.all([
-                axios.get(`http://${IPADD}:5000/api/users/${customerId}`).catch(() => null),
-                axios.get(`http://${IPADD}:5000/api/customer/dashboard/${customerId}`).catch(() => null),
+                api.get(`/api/customer/profile/${customerId}`).catch(() => null),
+                api.get(`/api/customer/dashboard/${customerId}`).catch(() => null),
             ]);
 
             if (profileRes?.data) {
@@ -173,7 +172,11 @@ const CustomerProfile = () => {
         setSaving(true);
         try {
             const customerId = await AsyncStorage.getItem('userId');
-            await axios.put(`http://${IPADD}:5000/api/users/${customerId}`, editData);
+            // NOTE: the backend does not yet expose a profile-update endpoint;
+            // this now at least targets the correct resource path/naming
+            // convention. Adding the PUT handler + schema field belongs to
+            // the data-model stage, not this foundation-repair stage.
+            await api.put(`/api/customer/profile/${customerId}`, editData);
             setCustomer({ ...customer, ...editData });
             setEditing(false);
             Alert.alert('Success', 'Profile updated successfully!');

@@ -16,9 +16,8 @@ import {
   Dimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import {
   colors,
   gradients,
@@ -177,9 +176,7 @@ const CustomerDashboard = ({ onNavigate }) => {
         return;
       }
 
-      const response = await axios.get(
-        `http://${IPADD}:5000/api/customer/dashboard/${customerId}`
-      );
+      const response = await api.get(`/api/customer/dashboard/${customerId}`);
       setDashboardData(response.data);
       setError(null);
     } catch (err) {

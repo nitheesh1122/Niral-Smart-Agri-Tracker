@@ -19,11 +19,10 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import { WebView } from 'react-native-webview';
 import { Picker } from '@react-native-picker/picker';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import {
   colors,
   gradients,
@@ -217,7 +216,7 @@ export default function ExportManagement() {
 
   const fetchExports = async (id) => {
     try {
-      const res = await axios.get(`http://${IPADD}:5000/api/vendor/exports?vendorId=${id}`);
+      const res = await api.get(`/api/vendor/exports?vendorId=${id}`);
       setExportsList(res.data || []);
     } catch (e) {
       console.error(e);
@@ -230,7 +229,7 @@ export default function ExportManagement() {
   const fetchResources = async () => {
     if (!form.startDate || !form.endDate) return;
     try {
-      const res = await axios.get(`http://${IPADD}:5000/api/vendor/availableResources`, {
+      const res = await api.get('/api/vendor/availableResources', {
         params: {
           vendorId,
           startDate: form.startDate.toISOString(),
@@ -291,7 +290,7 @@ export default function ExportManagement() {
     };
 
     try {
-      await axios.post(`http://${IPADD}:5000/api/vendor/export/add/${vendorId}`, payload);
+      await api.post(`/api/vendor/export/add/${vendorId}`, payload);
       Alert.alert('Success', 'Export created successfully!');
       resetForm();
       setShowForm(false);

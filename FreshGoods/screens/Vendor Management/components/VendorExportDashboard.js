@@ -14,10 +14,9 @@ import {
     RefreshControl,
     Alert,
 } from 'react-native';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import {
     colors,
     gradients,
@@ -177,9 +176,7 @@ const VendorExportDashboard = () => {
             const vendorId = await AsyncStorage.getItem('userId');
             if (!vendorId) return;
 
-            const response = await axios.get(
-                `http://${IPADD}:5000/api/vendor/exports/${vendorId}`
-            );
+            const response = await api.get(`/api/vendor/exports/${vendorId}`);
             const data = response.data || [];
             setExports(data);
             setFilteredExports(data);
@@ -230,9 +227,7 @@ const VendorExportDashboard = () => {
                     text: 'Start',
                     onPress: async () => {
                         try {
-                            await axios.put(
-                                `http://${IPADD}:5000/api/vendor/export/start/${item._id}`
-                            );
+                            await api.put(`/api/vendor/export/start/${item._id}`);
                             Alert.alert('Success', 'Delivery started!');
                             fetchExports();
                         } catch (err) {
@@ -254,9 +249,7 @@ const VendorExportDashboard = () => {
                     text: 'Complete',
                     onPress: async () => {
                         try {
-                            await axios.put(
-                                `http://${IPADD}:5000/api/vendor/export/complete/${item._id}`
-                            );
+                            await api.put(`/api/vendor/export/complete/${item._id}`);
                             Alert.alert('Success', 'Delivery completed!');
                             fetchExports();
                         } catch (err) {

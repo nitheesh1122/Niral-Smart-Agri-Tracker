@@ -1,21 +1,41 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { IPADD } from '../ipadd';
+import { API_BASE_URL } from '../config/env';
 
 /**
- * Centralized API service with:
+ * Centralized API service — the one HTTP client every screen should use to
+ * talk to this app's own backend. External integrations (Pusher, Expo push,
+ * OpenRouteService/Nominatim, map WebViews) intentionally keep their own
+ * clients and do not go through this instance.
+ *
+ * Handles:
+ * - Base URL (see screens/config/env.js)
  * - Automatic auth token injection
- * - Request/Response interceptors
  * - Timeout handling
- * - Error standardization
+ * - Consistent 401/403/network error behavior
  */
 const api = axios.create({
-    baseURL: `http://${IPADD}:5000`,
+    baseURL: API_BASE_URL,
     timeout: 15000,
     headers: {
         'Content-Type': 'application/json',
     },
 });
+
+// Lazily resolved to avoid a hard circular import at module-eval time
+// (App.js imports screens which import this file). Only ever accessed
+// inside the response-error handler below, well after App.js has run.
+let navigationRef = null;
+const getNavigationRef = () => {
+    if (!navigationRef) {
+        try {
+            navigationRef = require('../../App').navigationRef;
+        } catch (e) {
+            navigationRef = null;
+        }
+    }
+    return navigationRef;
+};
 
 // Request interceptor - add auth token
 api.interceptors.request.use(
@@ -35,32 +55,40 @@ api.interceptors.request.use(
     }
 );
 
-// Response interceptor - handle errors
+// Response interceptor - handle errors consistently across the app
 api.interceptors.response.use(
     (response) => response,
     async (error) => {
-        const originalRequest = error.config;
+        const status = error.response?.status;
 
-        // Handle 401 Unauthorized
-        if (error.response?.status === 401 && !originalRequest._retry) {
-            originalRequest._retry = true;
-
-            // Clear stored auth data and redirect to login
+        if (status === 401) {
+            // Session is invalid/expired: clear it and bounce to Login so the
+            // app never sits "visually logged in" while requests are failing.
             await AsyncStorage.multiRemove(['token', 'userId', 'role']);
 
-            // You may want to navigate to login here
-            // navigationRef.current?.navigate('Login');
+            const ref = getNavigationRef();
+            if (ref?.isReady?.()) {
+                ref.reset({ index: 0, routes: [{ name: 'Login' }] });
+            }
         }
 
-        // Standardize error response
-        const errorMessage = error.response?.data?.message
-            || error.message
-            || 'An unexpected error occurred';
+        // Standardize error response so every screen can rely on the same shape
+        const errorMessage = status === 401
+            ? 'Your session has expired. Please log in again.'
+            : status === 403
+                ? (error.response?.data?.message || error.response?.data?.error || 'You are not authorized to do that.')
+                : status === 404
+                    ? 'The requested resource was not found.'
+                    : status >= 500
+                        ? 'Server error. Please try again shortly.'
+                        : !error.response
+                            ? 'Network error. Check your connection and try again.'
+                            : (error.response?.data?.message || error.response?.data?.error || error.message || 'An unexpected error occurred');
 
         return Promise.reject({
             ...error,
             message: errorMessage,
-            status: error.response?.status,
+            status,
         });
     }
 );

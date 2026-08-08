@@ -15,10 +15,11 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Pusher from 'pusher-js/react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
+import { API_BASE_URL } from '../../config/env';
 import {
   colors,
   gradients,
@@ -32,7 +33,7 @@ import { SlideInView, FadeInView } from '../../components/AnimatedComponents';
 /* ------------------------------------------------------------------ *
  * CONFIG
  * ------------------------------------------------------------------ */
-const API_BASE = `http://${IPADD}:5000`;
+const API_BASE = API_BASE_URL;
 const PUSHER_KEY = '562e97ac482dc6689524';
 const PUSHER_CLUSTER = 'ap2';
 const CHAT_EVENT = 'new-message';
@@ -58,10 +59,11 @@ export default function DriverChat({
 
     let pusher;
     let channel;
+    let cancelled = false;
 
     // History
-    axios
-      .get(`${API_BASE}/chat/history`, {
+    api
+      .get('/chat/history', {
         params: { vendorId, targetId: driverId, chatType: 'driver' },
       })
       .then((res) => {
@@ -72,30 +74,37 @@ export default function DriverChat({
       })
       .finally(() => setLoading(false));
 
-    // Pusher
-    try {
-      pusher = new Pusher(PUSHER_KEY, {
-        cluster: PUSHER_CLUSTER,
-        authEndpoint: `${API_BASE}/chat/pusher/auth`,
-        auth: { headers: { 'x-user-id': driverId } },
-      });
+    // Pusher — its authorizer makes its own HTTP request outside of our
+    // axios instance, so the JWT has to be attached to it explicitly.
+    (async () => {
+      const token = await AsyncStorage.getItem('token');
+      if (cancelled) return;
 
-      const channelName = `private-chat-${vendorId}-${driverId}`;
-      channel = pusher.subscribe(channelName);
-
-      channel.bind(CHAT_EVENT, (data) => {
-        setMessages((prev) => {
-          if (prev.some((m) => m._id === data._id)) return prev;
-          const next = [...prev, data];
-          next.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-          return next;
+      try {
+        pusher = new Pusher(PUSHER_KEY, {
+          cluster: PUSHER_CLUSTER,
+          authEndpoint: `${API_BASE}/chat/pusher/auth`,
+          auth: { headers: { Authorization: `Bearer ${token}` } },
         });
-      });
-    } catch (err) {
-      console.error('Pusher error:', err);
-    }
+
+        const channelName = `private-chat-${vendorId}-${driverId}`;
+        channel = pusher.subscribe(channelName);
+
+        channel.bind(CHAT_EVENT, (data) => {
+          setMessages((prev) => {
+            if (prev.some((m) => m._id === data._id)) return prev;
+            const next = [...prev, data];
+            next.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            return next;
+          });
+        });
+      } catch (err) {
+        console.error('Pusher error:', err);
+      }
+    })();
 
     return () => {
+      cancelled = true;
       if (channel) {
         channel.unbind_all();
         channel.unsubscribe();
@@ -122,11 +131,12 @@ export default function DriverChat({
     setMessages((prev) => [...prev, optimistic]);
 
     try {
-      await axios.post(
-        `${API_BASE}/chat/send`,
-        { vendorId, driverId, content: messageText, senderType: 'driver' },
-        { headers: { 'x-user-id': driverId } }
-      );
+      await api.post('/chat/send', {
+        vendorId,
+        driverId,
+        content: messageText,
+        senderType: 'driver',
+      });
       setMessages((prev) => prev.filter((m) => m._id !== optimistic._id));
     } catch (err) {
       console.error('Send error:', err);

@@ -19,8 +19,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import {
   colors,
   gradients,
@@ -198,7 +197,7 @@ const VehicleManagement = () => {
   const fetchVehicles = useCallback(async () => {
     try {
       const vendorId = await AsyncStorage.getItem('userId');
-      const res = await axios.get(`http://${IPADD}:5000/api/vendor/vehicles?vendorId=${vendorId}`);
+      const res = await api.get(`/api/vendor/vehicles?vendorId=${vendorId}`);
       setVehicles(res.data || []);
     } catch (err) {
       console.error('Fetch error:', err);
@@ -210,7 +209,7 @@ const VehicleManagement = () => {
 
   const fetchAvailableDevices = async () => {
     try {
-      const res = await axios.get(`http://${IPADD}:5000/api/vendor/available-devices`);
+      const res = await api.get('/api/vendor/available-devices');
       setDeviceOptions(res.data || []);
     } catch (err) {
       console.error('Device fetch error:', err);
@@ -225,7 +224,7 @@ const VehicleManagement = () => {
     setSubmitting(true);
     try {
       const vendorId = await AsyncStorage.getItem('userId');
-      await axios.post(`http://${IPADD}:5000/api/vendor/add-vehicle`, {
+      await api.post('/api/vendor/add-vehicle', {
         ...form,
         vendorId,
       });

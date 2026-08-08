@@ -14,9 +14,8 @@ import {
   TouchableOpacity,
   Platform,
 } from 'react-native';
-import axios from 'axios';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
-import { IPADD } from '../../../ipadd';
+import api from '../../../services/api';
 import { AnimatedCircularProgress } from 'react-native-circular-progress';
 import { colors, spacing, typography, borderRadius } from '../../../theme';
 
@@ -82,8 +81,8 @@ const MonitorHealthView = ({ selectedExport, onBack }) => {
     try {
       setLoading(true);
       const dateParam = formatDate(date);
-      const res = await axios.get(
-        `http://${IPADD}:5000/api/vendor/device/sensor-data/${selectedExport._id}`,
+      const res = await api.get(
+        `/api/vendor/device/sensor-data/${selectedExport._id}`,
         { params: { date: dateParam } }
       );
 

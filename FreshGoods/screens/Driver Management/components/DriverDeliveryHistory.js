@@ -12,8 +12,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
 
 const DriverDeliveryHistory = () => {
@@ -27,7 +26,7 @@ const DriverDeliveryHistory = () => {
       const driverId = await AsyncStorage.getItem('userId');
       if (!driverId) return;
 
-      const res = await axios.get(`http://${IPADD}:5000/api/driver/export/driver/${driverId}`);
+      const res = await api.get(`/api/driver/export/driver/${driverId}`);
       const completed = (res.data || []).filter(e => e.status === 'Completed');
       setDeliveries(completed);
     } catch (err) {

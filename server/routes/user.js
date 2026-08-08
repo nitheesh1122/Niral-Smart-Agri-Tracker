@@ -9,6 +9,9 @@ router.post('/token', async (req, res) => {
   if (!userId || !pushToken) {
     return res.status(400).json({ error: 'Missing userId or pushToken' });
   }
+  if (userId !== req.user.id) {
+    return res.status(403).json({ error: 'Access denied. Not your account.' });
+  }
 
   try {
     // Try to find the user in all three collections

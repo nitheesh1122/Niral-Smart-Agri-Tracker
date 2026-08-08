@@ -14,9 +14,8 @@ import {
   RefreshControl,
   ScrollView,
 } from 'react-native';
-import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   colors,
@@ -192,9 +191,7 @@ const VendorHomePlaceHolder = () => {
       const name = await AsyncStorage.getItem('userName');
       if (name) setVendorName(name);
 
-      const res = await axios.get(
-        `http://${IPADD}:5000/api/vendor/export/passedstatus/${vendorId}`
-      );
+      const res = await api.get(`/api/vendor/export/passedstatus/${vendorId}`);
       const exportData = res.data || [];
       setExports(exportData);
 

@@ -13,8 +13,8 @@ import {
   Alert,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
-import axios from 'axios';
-import { IPADD } from '../../../ipadd';
+import axios from 'axios'; // used only for the external OpenRouteService calls below
+import api from '../../../services/api';
 
 const ORS_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjRkZjk4MGNjNTZhZTAzYTE3ZGI0NDJiMjVkNzAzNGM5YTczOWIzODlhOTg5NGM1YzZhODYzZWQ0IiwiaCI6Im11cm11cjY0In0=';
 
@@ -181,7 +181,7 @@ const DriverRouteMap = ({ exportId, onBack }) => {
 
   const fetchExportAndRoute = useCallback(async () => {
     try {
-      const exportRes = await axios.get(`http://${IPADD}:5000/api/driver/map/export/${exportId}`);
+      const exportRes = await api.get(`/api/driver/map/export/${exportId}`);
       const exportData = exportRes.data;
 
       const startLoc = {
@@ -215,7 +215,7 @@ const DriverRouteMap = ({ exportId, onBack }) => {
 
     const fetchLiveLocation = async () => {
       try {
-        const res = await axios.get(`http://${IPADD}:5000/api/driver/device/location-data/${exportId}`);
+        const res = await api.get(`/api/driver/device/location-data/${exportId}`);
         const locationArray = res.data;
 
         if (Array.isArray(locationArray) && locationArray.length > 0) {

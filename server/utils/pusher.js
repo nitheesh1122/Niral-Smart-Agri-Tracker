@@ -1,10 +1,18 @@
 const Pusher = require('pusher');
 
+const { PUSHER_APP_ID, PUSHER_KEY, PUSHER_SECRET, PUSHER_CLUSTER } = process.env;
+
+if (!PUSHER_APP_ID || !PUSHER_KEY || !PUSHER_SECRET || !PUSHER_CLUSTER) {
+  throw new Error(
+    'Missing Pusher configuration. Set PUSHER_APP_ID, PUSHER_KEY, PUSHER_SECRET and PUSHER_CLUSTER in .env'
+  );
+}
+
 const pusher = new Pusher({
-  appId: "2013371",
-  key: "562e97ac482dc6689524",
-  secret: "079bd4e825345639a708",
-  cluster: "ap2",
+  appId: PUSHER_APP_ID,
+  key: PUSHER_KEY,
+  secret: PUSHER_SECRET,
+  cluster: PUSHER_CLUSTER,
   useTLS: true,
 });
 

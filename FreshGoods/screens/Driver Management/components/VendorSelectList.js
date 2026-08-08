@@ -4,11 +4,8 @@ import {
   View, Text, FlatList, TouchableOpacity,
   ActivityIndicator, StyleSheet
 } from 'react-native';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { IPADD } from '../../ipadd';
-
-const API_BASE = `http://${IPADD}:5000`;
+import api from '../../services/api';
 
 const VendorSelectList = ({ onSelect }) => {
   const [vendors, setVendors] = useState([]);
@@ -20,7 +17,7 @@ const VendorSelectList = ({ onSelect }) => {
         const userId = await AsyncStorage.getItem('userId');
         if (!userId) return;
 
-       const { data } = await axios.get(`${API_BASE}/chat/vendors/by-driver`, {
+       const { data } = await api.get('/chat/vendors/by-driver', {
   params: { driverId: userId }
 });
         setVendors(data);

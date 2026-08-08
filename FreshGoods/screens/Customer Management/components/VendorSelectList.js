@@ -3,10 +3,7 @@ import {
   View, Text, TextInput, FlatList,
   TouchableOpacity, ActivityIndicator, StyleSheet
 } from 'react-native';
-import axios from 'axios';
-import { IPADD } from '../../ipadd';  // import your IP address
-
-const API_BASE = `http://${IPADD}:5000`;  // change to your backend
+import api from '../../services/api';
 
 const VendorSelectList = ({ onSelectVendor }) => {
   const [vendors, setVendors] = useState([]);
@@ -18,7 +15,7 @@ const VendorSelectList = ({ onSelectVendor }) => {
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await axios.get(`${API_BASE}/chat/vendors/get`);
+        const { data } = await api.get('/chat/vendors/get');
         setVendors(data);
         setFiltered(data);
       } finally {

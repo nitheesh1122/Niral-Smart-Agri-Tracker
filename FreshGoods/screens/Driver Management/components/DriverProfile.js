@@ -15,9 +15,8 @@ import {
   Animated,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import {
   colors,
   gradients,
@@ -122,8 +121,8 @@ const DriverProfile = () => {
       if (!driverId) return;
 
       const [profileRes, exportsRes] = await Promise.all([
-        axios.get(`http://${IPADD}:5000/api/driver/profile/${driverId}`).catch(() => null),
-        axios.get(`http://${IPADD}:5000/api/driver/export/driver/${driverId}`).catch(() => null),
+        api.get(`/api/driver/profile/${driverId}`).catch(() => null),
+        api.get(`/api/driver/export/driver/${driverId}`).catch(() => null),
       ]);
 
       if (profileRes?.data) {

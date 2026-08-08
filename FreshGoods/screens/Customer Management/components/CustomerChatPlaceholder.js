@@ -19,10 +19,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
-import axios from 'axios';
 import Pusher from 'pusher-js';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
+import { API_BASE_URL } from '../../config/env';
 import {
   colors,
   gradients,
@@ -36,7 +36,7 @@ import { FadeInView, SlideInView } from '../../components/AnimatedComponents';
 /* ------------------------------------------------------------------ *
  * Config
  * ------------------------------------------------------------------ */
-const API_BASE = `http://${IPADD}:5000`;
+const API_BASE = API_BASE_URL;
 const PUSHER_KEY = '562e97ac482dc6689524';
 const PUSHER_CLUSTER = 'ap2';
 const CHAT_EVENT = 'new-message';
@@ -71,33 +71,43 @@ export default function CustomerChat({
 
     let pusher;
     let channel;
+    let cancelled = false;
 
-    try {
-      pusher = new Pusher(PUSHER_KEY, {
-        cluster: PUSHER_CLUSTER,
-        authEndpoint: `${API_BASE}/chat/pusher/auth`,
-        auth: { headers: { 'x-user-id': customerId } },
-      });
+    (async () => {
+      // Pusher's authorizer makes its own HTTP request outside of our axios
+      // instance, so the JWT has to be attached to it explicitly — the
+      // backend's /chat/pusher/auth route now requires a valid Bearer token
+      // (identity is derived from the verified token, not a client header).
+      const token = await AsyncStorage.getItem('token');
+      if (cancelled) return;
 
-      const channelName = `private-chat-${vendorId}-${customerId}`;
-      channel = pusher.subscribe(channelName);
-
-      channel.bind(CHAT_EVENT, (data) => {
-        setMessages((prev) => {
-          const exists = prev.some((m) => m._id === data._id);
-          if (exists) return prev;
-          const updated = [...prev, data];
-          updated.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-          return updated;
+      try {
+        pusher = new Pusher(PUSHER_KEY, {
+          cluster: PUSHER_CLUSTER,
+          authEndpoint: `${API_BASE}/chat/pusher/auth`,
+          auth: { headers: { Authorization: `Bearer ${token}` } },
         });
-      });
-    } catch (err) {
-      console.error('Pusher setup error:', err);
-    }
+
+        const channelName = `private-chat-${vendorId}-${customerId}`;
+        channel = pusher.subscribe(channelName);
+
+        channel.bind(CHAT_EVENT, (data) => {
+          setMessages((prev) => {
+            const exists = prev.some((m) => m._id === data._id);
+            if (exists) return prev;
+            const updated = [...prev, data];
+            updated.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            return updated;
+          });
+        });
+      } catch (err) {
+        console.error('Pusher setup error:', err);
+      }
+    })();
 
     // Fetch chat history
-    axios
-      .get(`${API_BASE}/chat/history`, {
+    api
+      .get('/chat/history', {
         params: {
           vendorId,
           targetId: customerId,
@@ -118,6 +128,7 @@ export default function CustomerChat({
       .finally(() => setLoading(false));
 
     return () => {
+      cancelled = true;
       if (channel) {
         channel.unbind_all();
         channel.unsubscribe();
@@ -147,16 +158,12 @@ export default function CustomerChat({
     setMessages((prev) => [...prev, optimisticMessage]);
 
     try {
-      await axios.post(
-        `${API_BASE}/chat/send`,
-        {
-          vendorId,
-          customerId,
-          content: messageText,
-          senderType: 'customer',
-        },
-        { headers: { 'x-user-id': customerId } }
-      );
+      await api.post('/chat/send', {
+        vendorId,
+        customerId,
+        content: messageText,
+        senderType: 'customer',
+      });
       // Remove optimistic message (real one will come via Pusher)
       setMessages((prev) =>
         prev.filter((m) => m._id !== optimisticMessage._id)

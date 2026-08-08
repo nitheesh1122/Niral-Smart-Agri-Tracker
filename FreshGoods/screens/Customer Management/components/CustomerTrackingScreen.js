@@ -15,9 +15,8 @@ import {
     Linking,
     Alert,
 } from 'react-native';
-import axios from 'axios';
 import { LinearGradient } from 'expo-linear-gradient';
-import { IPADD } from '../../ipadd';
+import api from '../../services/api';
 import {
     colors,
     gradients,
@@ -155,10 +154,11 @@ const CustomerTrackingScreen = ({ exportId, exportData, onBack }) => {
         }
 
         try {
-            const response = await axios.get(
-                `http://${IPADD}:5000/api/customer/export/${exportId}`
-            );
-            setShipment(response.data);
+            // Corrected from a previously-broken /api/customer/export/:id URL
+            // (that route never existed) to the real /track/:id endpoint,
+            // which returns { export, startLocation, endLocation, ... }.
+            const response = await api.get(`/api/customer/track/${exportId}`);
+            setShipment(response.data.export);
         } catch (err) {
             console.error('Error fetching shipment:', err);
             if (exportData) {

@@ -30,12 +30,22 @@ const deviceSchema = new mongoose.Schema({
   isAssigned: {
     type: Boolean,
     default: false
-  }
+  },
+
+  // Back-reference to the Vehicle it's mounted on, resolved at assignment
+  // time. deviceName remains the authoritative join key for the external
+  // IoT writer (Stage 2 audit) — this field is a convenience for backend
+  // queries only. Type is Number, not ObjectId — Vehicle._id is a plain
+  // Number (see VehicleModel.js), a pre-existing design choice this field
+  // must match.
+  vehicle: { type: Number, ref: 'Vehicle', default: null },
 
 }, {
   timestamps: true,
   collection: 'Device'
 });
+
+deviceSchema.index({ vehicle: 1 });
 
 const Device = mongoose.model('Device', deviceSchema);
 module.exports = Device;

@@ -99,8 +99,10 @@ const InfoRow = ({ icon, label, value }) => (
 // ═══════════════════════════════════════════════════════════════════
 const CustomerTrackingScreen = ({ exportId, exportData, onBack }) => {
     const [loading, setLoading] = useState(true);
-    const [shipment, setShipment] = useState(exportData || null);
+    const [shipment, setShipment] = useState(null);
     const [driverLocation, setDriverLocation] = useState(null);
+    const [accessDenied, setAccessDenied] = useState(false);
+    const [loadError, setLoadError] = useState(null);
 
     // Default timeline steps
     const getTimelineSteps = (status) => {
@@ -118,7 +120,7 @@ const CustomerTrackingScreen = ({ exportId, exportData, onBack }) => {
                 id: 'assigned',
                 title: 'Driver Assigned',
                 description: `Driver ${shipment?.driver?.name || 'TBD'} will deliver your order`,
-                isCompleted: ['Assigned', 'Started', 'Completed'].includes(status),
+                isCompleted: ['ASSIGNED', 'ACCEPTED', 'IN_TRANSIT', 'COMPLETED'].includes(status),
                 time: shipment?.assignedAt
                     ? new Date(shipment.assignedAt).toLocaleString()
                     : null,
@@ -127,8 +129,8 @@ const CustomerTrackingScreen = ({ exportId, exportData, onBack }) => {
                 id: 'started',
                 title: 'In Transit',
                 description: 'Your order is on the way',
-                isCompleted: ['Started', 'Completed'].includes(status),
-                isActive: status === 'Started',
+                isCompleted: ['IN_TRANSIT', 'COMPLETED'].includes(status),
+                isActive: status === 'IN_TRANSIT',
                 time: shipment?.startDate
                     ? new Date(shipment.startDate).toLocaleString()
                     : null,
@@ -137,7 +139,7 @@ const CustomerTrackingScreen = ({ exportId, exportData, onBack }) => {
                 id: 'delivered',
                 title: 'Delivered',
                 description: 'Order has been delivered',
-                isCompleted: status === 'Completed',
+                isCompleted: status === 'COMPLETED',
                 time: shipment?.endDate
                     ? new Date(shipment.endDate).toLocaleString()
                     : null,
@@ -146,43 +148,62 @@ const CustomerTrackingScreen = ({ exportId, exportData, onBack }) => {
         return steps;
     };
 
+    // exportData (if passed in from a browse list) is only ever used for
+    // an instant id/title while this loads — tracking access is ALWAYS
+    // re-verified against the backend below. A client that already has a
+    // cached copy of a shipment (e.g. from /exports/available, which is
+    // not permission-filtered) must not be able to see live tracking
+    // details just by holding that cached object; only this server round
+    // trip decides that.
+    const id = exportId || exportData?._id;
+
     const fetchShipmentDetails = useCallback(async () => {
-        if (!exportId && exportData) {
-            setShipment(exportData);
+        if (!id) {
+            setLoadError('No shipment specified.');
             setLoading(false);
             return;
         }
 
+        setAccessDenied(false);
+        setLoadError(null);
         try {
-            // Corrected from a previously-broken /api/customer/export/:id URL
-            // (that route never existed) to the real /track/:id endpoint,
-            // which returns { export, startLocation, endLocation, ... }.
-            const response = await api.get(`/api/customer/track/${exportId}`);
+            const response = await api.get(`/api/customer/track/${id}`);
             setShipment(response.data.export);
         } catch (err) {
-            console.error('Error fetching shipment:', err);
-            if (exportData) {
-                setShipment(exportData);
+            if (err.status === 403) {
+                setAccessDenied(true);
+            } else if (err.status === 404) {
+                setLoadError('This shipment could not be found.');
+            } else {
+                setLoadError('Failed to load shipment details. Pull down to retry.');
             }
         } finally {
             setLoading(false);
         }
-    }, [exportId, exportData]);
+    }, [id]);
+
+    const fetchLiveLocation = useCallback(async () => {
+        if (!id) return;
+        try {
+            const res = await api.get(`/api/customer/track/${id}/location`);
+            setDriverLocation(res.data?.location || null);
+        } catch (err) {
+            // Tracking-permission or network failure — never fabricate a
+            // location, just show nothing.
+            setDriverLocation(null);
+        }
+    }, [id]);
 
     useEffect(() => {
         fetchShipmentDetails();
-
-        // Simulate driver location updates
-        const interval = setInterval(() => {
-            // In real app, fetch from API
-            setDriverLocation(prev => ({
-                lat: (prev?.lat || 0) + 0.001,
-                lng: (prev?.lng || 0) + 0.001,
-            }));
-        }, 5000);
-
-        return () => clearInterval(interval);
     }, [fetchShipmentDetails]);
+
+    useEffect(() => {
+        if (accessDenied || loadError) return;
+        fetchLiveLocation();
+        const interval = setInterval(fetchLiveLocation, 15000);
+        return () => clearInterval(interval);
+    }, [fetchLiveLocation, accessDenied, loadError]);
 
     const handleCallDriver = () => {
         const phone = shipment?.driver?.mobileNo;
@@ -201,10 +222,10 @@ const CustomerTrackingScreen = ({ exportId, exportData, onBack }) => {
     const getProgress = () => {
         const status = shipment?.status;
         switch (status) {
-            case 'Pending': return 25;
-            case 'Assigned': return 50;
-            case 'Started': return 75;
-            case 'Completed': return 100;
+            case 'ASSIGNED': return 25;
+            case 'ACCEPTED': return 50;
+            case 'IN_TRANSIT': return 75;
+            case 'COMPLETED': return 100;
             default: return 0;
         }
     };
@@ -218,7 +239,33 @@ const CustomerTrackingScreen = ({ exportId, exportData, onBack }) => {
         );
     }
 
-    const status = shipment?.status || 'Pending';
+    if (accessDenied) {
+        return (
+            <View style={styles.loadingContainer}>
+                <Text style={styles.emptyIcon}>🔒</Text>
+                <Text style={styles.emptyTitle}>Tracking not available</Text>
+                <Text style={styles.emptySubtext}>
+                    The vendor hasn't granted you access to track this shipment yet.
+                </Text>
+                {onBack && (
+                    <ThemedButton title="Go Back" variant="outline" onPress={onBack} style={{ marginTop: spacing.lg }} />
+                )}
+            </View>
+        );
+    }
+
+    if (loadError || !shipment) {
+        return (
+            <View style={styles.loadingContainer}>
+                <Text style={styles.emptyIcon}>⚠️</Text>
+                <Text style={styles.emptyTitle}>Couldn't load tracking</Text>
+                <Text style={styles.emptySubtext}>{loadError || 'Shipment not found.'}</Text>
+                <ThemedButton title="Retry" variant="primary" onPress={fetchShipmentDetails} style={{ marginTop: spacing.lg }} />
+            </View>
+        );
+    }
+
+    const status = shipment?.status || 'ASSIGNED';
     const statusColor = getStatusColor(status);
     const timelineSteps = getTimelineSteps(status);
     const progress = getProgress();
@@ -344,6 +391,17 @@ const CustomerTrackingScreen = ({ exportId, exportData, onBack }) => {
                             label="Vehicle"
                             value={shipment?.vehicle?.vehicleNumber}
                         />
+                        {status === 'IN_TRANSIT' && (
+                            <InfoRow
+                                icon="📡"
+                                label="Live Location"
+                                value={
+                                    driverLocation
+                                        ? `${driverLocation.latitude.toFixed(4)}, ${driverLocation.longitude.toFixed(4)}`
+                                        : 'Not available yet'
+                                }
+                            />
+                        )}
                     </ThemedCard>
                 </SlideInView>
 
@@ -411,6 +469,21 @@ const styles = StyleSheet.create({
         ...typography.body,
         color: colors.text.muted,
         marginTop: spacing.md,
+    },
+    emptyIcon: {
+        fontSize: 56,
+        marginBottom: spacing.md,
+    },
+    emptyTitle: {
+        ...typography.h3,
+        color: colors.text.primary,
+        marginBottom: spacing.sm,
+    },
+    emptySubtext: {
+        ...typography.body,
+        color: colors.text.muted,
+        textAlign: 'center',
+        paddingHorizontal: spacing.xl,
     },
     headerCard: {
         margin: spacing.md,

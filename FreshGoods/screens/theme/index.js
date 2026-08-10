@@ -528,6 +528,12 @@ export const createTimingAnimation = (value, toValue, duration = 'normal', easin
 export const getStatusColor = (status) => {
     const statusMap = {
         pending: colors.warning,
+        // Canonical Stage 4 shipment states (Shipment.status), alongside the
+        // pre-existing informal keys above/below still used elsewhere.
+        created: colors.warning,
+        assigned: colors.warning,
+        accepted: colors.primary,
+        in_transit: colors.info,
         started: colors.info,
         inprogress: colors.info,
         'in-progress': colors.info,
@@ -545,6 +551,10 @@ export const getStatusColor = (status) => {
 export const getStatusBgColor = (status) => {
     const statusMap = {
         pending: colors.warningBg,
+        created: colors.warningBg,
+        assigned: colors.warningBg,
+        accepted: 'rgba(16, 185, 129, 0.1)',
+        in_transit: colors.infoBg,
         started: colors.infoBg,
         inprogress: colors.infoBg,
         'in-progress': colors.infoBg,

@@ -92,7 +92,7 @@ const DriverAssignedExports = () => {
       Alert.alert('Success', 'Export accepted!');
       setExports((prev) =>
         prev.map((exp) =>
-          exp._id === exportId ? { ...exp, driverResponse: 'accepted' } : exp
+          exp._id === exportId ? { ...exp, status: 'ACCEPTED' } : exp
         )
       );
     } catch (err) {
@@ -111,13 +111,17 @@ const DriverAssignedExports = () => {
 
   const handleReject = async () => {
     if (!rejectExportId) return;
+    if (!rejectReason.trim()) {
+      Alert.alert('Reason required', 'Please explain why you are rejecting this job.');
+      return;
+    }
 
     setLoadingExportId(rejectExportId);
     setShowRejectModal(false);
 
     try {
       await api.put(`/api/driver/export/reject/${rejectExportId}`, {
-        reason: rejectReason || 'No reason provided',
+        reason: rejectReason.trim(),
       });
       Alert.alert('Rejected', 'Export has been rejected');
       setExports((prev) => prev.filter((exp) => exp._id !== rejectExportId));
@@ -134,12 +138,12 @@ const DriverAssignedExports = () => {
     setLoadingExportId(exportId);
     try {
       await api.put(`/api/driver/export/start/${exportId}`, {
-        status: 'Started',
+        status: 'IN_TRANSIT',
       });
       Alert.alert('Success', 'Export marked as Started');
       setExports((prev) =>
         prev.map((exp) =>
-          exp._id === exportId ? { ...exp, status: 'Started' } : exp
+          exp._id === exportId ? { ...exp, status: 'IN_TRANSIT' } : exp
         )
       );
     } catch (err) {
@@ -157,7 +161,7 @@ const DriverAssignedExports = () => {
       Alert.alert('Success', 'Export marked as Completed! 🎉');
       setExports((prev) =>
         prev.map((exp) =>
-          exp._id === exportId ? { ...exp, status: 'Completed' } : exp
+          exp._id === exportId ? { ...exp, status: 'COMPLETED' } : exp
         )
       );
     } catch (err) {
@@ -169,22 +173,22 @@ const DriverAssignedExports = () => {
   };
 
   const getStatusColor = (item) => {
-    if (item.status === 'Started') return colors.success;
-    if (item.status === 'Completed') return '#6c757d';
-    if (item.driverResponse === 'accepted') return colors.primary;
+    if (item.status === 'IN_TRANSIT') return colors.success;
+    if (item.status === 'COMPLETED') return '#6c757d';
+    if (item.status === 'ACCEPTED') return colors.primary;
     return colors.warning;
   };
 
   const getStatusText = (item) => {
-    if (item.status === 'Started') return '🚚 In Progress';
-    if (item.status === 'Completed') return '✅ Completed';
-    if (item.driverResponse === 'accepted') return '✓ Accepted';
+    if (item.status === 'IN_TRANSIT') return '🚚 In Progress';
+    if (item.status === 'COMPLETED') return '✅ Completed';
+    if (item.status === 'ACCEPTED') return '✓ Accepted';
     return '⏳ Pending Response';
   };
 
   const filteredExports = exports.filter((exp) => {
-    if (filter === 'pending') return exp.driverResponse === 'pending' && exp.status === 'Pending';
-    if (filter === 'accepted') return exp.driverResponse === 'accepted' && exp.status === 'Pending';
+    if (filter === 'pending') return exp.status === 'ASSIGNED';
+    if (filter === 'accepted') return exp.status === 'ACCEPTED';
     if (filter === 'scheduled') return isFuture(exp.startDate);
     return true;
   });
@@ -216,11 +220,33 @@ const DriverAssignedExports = () => {
         <View style={styles.details}>
           <Text style={styles.detailText}>🏪 Vendor: {item.vendorId?.name || 'N/A'}</Text>
           <Text style={styles.detailText}>📞 Contact: {item.vendorId?.mobileNo || 'N/A'}</Text>
-          <Text style={styles.detailText}>📦 Quantity: {item.quantity}</Text>
+          <Text style={styles.detailText}>📦 Quantity: {item.quantity} {item.unit || ''}</Text>
           <Text style={styles.detailText}>💰 Cost: ₹{item.costPrice} | Sale: ₹{item.salePrice}</Text>
+          <Text style={styles.detailText}>💵 Your Salary: ₹{item.driverSalary != null ? item.driverSalary : 'N/A'}</Text>
+          {item.customer?.name && (
+            <Text style={styles.detailText}>🧑 Customer: {item.customer.name}</Text>
+          )}
+          {item.startLocation && (
+            <Text style={styles.detailText}>
+              📍 Pickup: {item.startLocation.latitude?.toFixed(4)}, {item.startLocation.longitude?.toFixed(4)}
+            </Text>
+          )}
+          {item.endLocation && (
+            <Text style={styles.detailText}>
+              🏁 Destination: {item.endLocation.latitude?.toFixed(4)}, {item.endLocation.longitude?.toFixed(4)}
+            </Text>
+          )}
+          {item.expectedDropTime && (
+            <Text style={styles.detailText}>
+              ⏰ Expected Drop: {new Date(item.expectedDropTime).toLocaleString()}
+            </Text>
+          )}
+          {item.instructions && (
+            <Text style={styles.detailText}>📝 Instructions: {item.instructions}</Text>
+          )}
 
           {/* Action Buttons */}
-          {item.driverResponse === 'pending' && item.status === 'Pending' && (
+          {item.status === 'ASSIGNED' && (
             <View style={styles.actionButtons}>
               {loadingExportId === item._id ? (
                 <ActivityIndicator size="small" color={colors.primary} />
@@ -244,8 +270,7 @@ const DriverAssignedExports = () => {
           )}
 
           {/* Start Button - only for accepted exports on the day */}
-          {item.driverResponse === 'accepted' &&
-            item.status === 'Pending' &&
+          {item.status === 'ACCEPTED' &&
             isToday(item.startDate) && (
               loadingExportId === item._id ? (
                 <View style={styles.loadingBox}>
@@ -263,7 +288,7 @@ const DriverAssignedExports = () => {
             )}
 
           {/* Future date notice */}
-          {item.driverResponse === 'accepted' && isFuture(item.startDate) && (
+          {item.status === 'ACCEPTED' && isFuture(item.startDate) && (
             <View style={styles.futureNotice}>
               <Text style={styles.futureText}>
                 🗓️ This export is scheduled for {formatDate(item.startDate)}
@@ -272,7 +297,7 @@ const DriverAssignedExports = () => {
           )}
 
           {/* Complete Button - for started exports */}
-          {item.status === 'Started' && (
+          {item.status === 'IN_TRANSIT' && (
             loadingExportId === item._id ? (
               <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: spacing.md }} />
             ) : (
@@ -286,7 +311,7 @@ const DriverAssignedExports = () => {
           )}
 
           {/* Completed Badge */}
-          {item.status === 'Completed' && (
+          {item.status === 'COMPLETED' && (
             <View style={styles.completedBadge}>
               <Text style={styles.completedText}>✅ Delivery Completed</Text>
             </View>
@@ -341,7 +366,7 @@ const DriverAssignedExports = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Reject Export</Text>
-            <Text style={styles.modalSubtitle}>Please provide a reason (optional):</Text>
+            <Text style={styles.modalSubtitle}>A reason is required:</Text>
             <TextInput
               style={styles.reasonInput}
               placeholder="e.g., Schedule conflict, vehicle issue..."
@@ -358,8 +383,9 @@ const DriverAssignedExports = () => {
                 <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.confirmRejectButton}
+                style={[styles.confirmRejectButton, !rejectReason.trim() && styles.disabledButton]}
                 onPress={handleReject}
+                disabled={!rejectReason.trim()}
               >
                 <Text style={styles.buttonText}>Reject</Text>
               </TouchableOpacity>
@@ -589,6 +615,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm + 2,
     borderRadius: borderRadius.md,
     alignItems: 'center',
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
   completeButton: {
     backgroundColor: '#6c5ce7',

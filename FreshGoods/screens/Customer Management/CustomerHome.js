@@ -12,6 +12,7 @@ import { useNavigation } from '@react-navigation/native';
 import CustomerDashboard from './components/CustomerHomePlaceholder';
 import CustomerProfile from './components/CustomerProfile';
 import CustomerViewGoods from './components/CustomerViewGoods';
+import CustomerMyShipments from './components/CustomerMyShipments';
 import CustomerTrackingScreen from './components/CustomerTrackingScreen';
 import VendorSelectList from './components/VendorSelectList';
 import CustomerChat from './components/CustomerChatPlaceholder';
@@ -26,6 +27,7 @@ import { colors, spacing } from '../theme';
 const MENU_ITEMS = [
   { id: 'home', label: 'Home', icon: '🏠' },
   { id: 'profile', label: 'Profile', icon: '👤' },
+  { id: 'myShipments', label: 'My Shipments', icon: '📦' },
   { id: 'viewGoods', label: 'Browse Goods', icon: '🛒' },
   { id: 'chat', label: 'Chat', icon: '💬' },
   { id: 'notifications', label: 'Notifications', icon: '🔔' },
@@ -102,6 +104,13 @@ const CustomerHome = () => {
       case 'viewGoods':
         return (
           <CustomerViewGoods
+            onTrack={(exportData) => handleNavigate('tracking', { exportData })}
+          />
+        );
+
+      case 'myShipments':
+        return (
+          <CustomerMyShipments
             onTrack={(exportData) => handleNavigate('tracking', { exportData })}
           />
         );

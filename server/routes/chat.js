@@ -5,6 +5,7 @@ const Message = require('../models/Message');
 const Vendor = require('../models/vendorModel');
 const Customer = require('../models/customerModel');
 const Driver = require('../models/driverModel'); // Assuming you have a Driver model
+const { createNotification } = require('../services/notificationService');
 
 /**
  * Send push notification via Expo Push API
@@ -90,16 +91,35 @@ router.post('/send', async (req, res) => {
     const channel = `private-chat-${vendorId}-${targetId}`;
     pusher.trigger(channel, 'new-message', msg);
 
-    /* 3️⃣ Push notification */
-    const TargetModel = customerId ? Customer : Driver;
-    const targetUser = await TargetModel.findById(targetId).select('expoPushToken');
+    /* 3️⃣ Push notification — goes to whichever participant did NOT send
+     * this message. Previously this always pushed to targetId
+     * (customerId || driverId), which is correct when the vendor sends
+     * but wrong when the customer/driver sends: the push landed back on
+     * the sender's own device instead of the vendor's (Stage 4 report,
+     * Phase 12 fix). */
+    const recipientIsVendor = senderId !== vendorId;
+    const RecipientModel = recipientIsVendor ? Vendor : (customerId ? Customer : Driver);
+    const recipientId = recipientIsVendor ? vendorId : targetId;
+    const recipientUser = await RecipientModel.findById(recipientId).select('expoPushToken');
 
-    if (targetUser?.expoPushToken) {
-      await sendPushNotification(targetUser.expoPushToken, {
+    if (recipientUser?.expoPushToken) {
+      await sendPushNotification(recipientUser.expoPushToken, {
         title: 'New Message',
         body: content,
       });
     }
+
+    /* 4️⃣ Persist a Notification for the same, correctly-computed
+     * recipient. */
+    await createNotification({
+      recipientId: recipientIsVendor ? vendorId : targetId,
+      recipientModel: recipientIsVendor ? 'Vendor' : (customerId ? 'Customer' : 'Driver'),
+      type: 'CHAT_MESSAGE',
+      title: 'New message',
+      message: content.length > 100 ? `${content.slice(0, 97)}...` : content,
+      relatedEntityType: 'Message',
+      relatedEntityId: msg._id,
+    });
 
     res.status(201).json(msg);
   } catch (err) {

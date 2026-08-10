@@ -96,9 +96,9 @@ const MAP_HTML = `
 const ExportCard = ({ item, index }) => {
   const getStatusStyle = (status) => {
     switch (status) {
-      case 'Started':
+      case 'IN_TRANSIT':
         return { bg: colors.warningBg, color: colors.warning };
-      case 'Completed':
+      case 'COMPLETED':
         return { bg: colors.successBg, color: colors.success };
       default:
         return { bg: colors.infoBg, color: colors.info };
@@ -180,21 +180,28 @@ export default function ExportManagement() {
   const [form, setForm] = useState({
     itemName: '',
     quantity: '',
+    unit: '',
     costPrice: '',
     salePrice: '',
     salary: '',
     startDate: null,
     endDate: null,
+    expectedDropTime: null,
+    instructions: '',
     driver: '',
     vehicle: '',
+    customer: '',
     startLat: '',
     startLon: '',
     endLat: '',
     endLon: '',
   });
 
+  const UNIT_OPTIONS = ['kg', 'g', 'ton', 'liter', 'ml', 'piece', 'box', 'crate', 'dozen'];
+
   const [drivers, setDrivers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [datePicker, setDatePicker] = useState({ show: false, target: 'start' });
   const [mapModal, setMapModal] = useState({ show: false, field: 'start' });
   const [submitting, setSubmitting] = useState(false);
@@ -204,9 +211,20 @@ export default function ExportManagement() {
       const id = await AsyncStorage.getItem('userId');
       setVendorId(id);
       await fetchExports(id);
+      await fetchCustomers();
     };
     fetchData();
   }, []);
+
+  const fetchCustomers = async () => {
+    try {
+      const res = await api.get('/chat/customers/get');
+      setCustomers(res.data || []);
+    } catch (e) {
+      console.error('Failed to fetch customers:', e);
+      setCustomers([]);
+    }
+  };
 
   useEffect(() => {
     if (form.startDate && form.endDate && vendorId) {
@@ -271,13 +289,17 @@ export default function ExportManagement() {
     setSubmitting(true);
     const payload = {
       itemName: form.itemName.trim(),
+      unit: form.unit || undefined,
       startDate: form.startDate.toISOString(),
       endDate: form.endDate.toISOString(),
+      expectedDropTime: form.expectedDropTime ? form.expectedDropTime.toISOString() : undefined,
+      instructions: form.instructions.trim() || undefined,
       quantity: parseInt(form.quantity),
       costPrice: parseFloat(form.costPrice),
       salePrice: parseFloat(form.salePrice),
       driver: form.driver,
       vehicle: form.vehicle,
+      customer: form.customer || undefined,
       salary: parseFloat(form.salary),
       startLocation: {
         latitude: parseFloat(form.startLat),
@@ -307,13 +329,17 @@ export default function ExportManagement() {
     setForm({
       itemName: '',
       quantity: '',
+      unit: '',
       costPrice: '',
       salePrice: '',
       salary: '',
       startDate: null,
       endDate: null,
+      expectedDropTime: null,
+      instructions: '',
       driver: '',
       vehicle: '',
+      customer: '',
       startLat: '',
       startLon: '',
       endLat: '',
@@ -354,14 +380,14 @@ export default function ExportManagement() {
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statValue}>
-              {exportsList.filter((e) => e.status === 'Started').length}
+              {exportsList.filter((e) => e.status === 'IN_TRANSIT').length}
             </Text>
             <Text style={styles.statLabel}>Active</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statValue}>
-              {exportsList.filter((e) => e.status === 'Completed').length}
+              {exportsList.filter((e) => e.status === 'COMPLETED').length}
             </Text>
             <Text style={styles.statLabel}>Completed</Text>
           </View>
@@ -436,12 +462,59 @@ export default function ExportManagement() {
               <Text style={styles.inputLabel}>Quantity</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g. 500 kg"
+                placeholder="e.g. 500"
                 placeholderTextColor={colors.text.muted}
                 keyboardType="numeric"
                 value={form.quantity}
                 onChangeText={(v) => setForm((f) => ({ ...f, quantity: v }))}
               />
+
+              <Text style={styles.inputLabel}>Unit (optional)</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={form.unit}
+                  onValueChange={(value) => setForm((f) => ({ ...f, unit: value }))}
+                  style={styles.picker}
+                >
+                  <Picker.Item label="-- No unit --" value="" />
+                  {UNIT_OPTIONS.map((u) => (
+                    <Picker.Item key={u} label={u} value={u} />
+                  ))}
+                </Picker>
+              </View>
+
+              <Text style={styles.inputLabel}>Instructions / Notes (optional)</Text>
+              <TextInput
+                style={[styles.input, styles.multilineInput]}
+                placeholder="e.g. Handle with care, keep refrigerated"
+                placeholderTextColor={colors.text.muted}
+                multiline
+                numberOfLines={3}
+                value={form.instructions}
+                onChangeText={(v) => setForm((f) => ({ ...f, instructions: v }))}
+              />
+            </ThemedCard>
+
+            {/* Form Section: Customer */}
+            <Text style={styles.sectionTitle}>🧑‍🤝‍🧑 Customer (optional)</Text>
+            <ThemedCard variant="outlined" style={styles.formSection}>
+              <Text style={styles.inputLabel}>
+                Associate a customer with this shipment. This does NOT grant
+                them tracking access — grant that separately from the
+                shipment's tracking permissions.
+              </Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={form.customer}
+                  onValueChange={(value) => setForm((f) => ({ ...f, customer: value }))}
+                  style={styles.picker}
+                >
+                  <Picker.Item label="-- No customer --" value="" />
+                  {customers.map((c) => (
+                    <Picker.Item key={c._id} label={c.name} value={c._id} />
+                  ))}
+                </Picker>
+              </View>
             </ThemedCard>
 
             {/* Form Section: Schedule */}
@@ -467,6 +540,15 @@ export default function ExportManagement() {
                   </Text>
                 </TouchableOpacity>
               </View>
+              <TouchableOpacity
+                style={styles.dateButton}
+                onPress={() => setDatePicker({ show: true, target: 'expectedDropTime' })}
+              >
+                <Text style={styles.dateLabel}>Expected Drop Time (optional)</Text>
+                <Text style={form.expectedDropTime ? styles.dateValue : styles.datePlaceholder}>
+                  {form.expectedDropTime ? form.expectedDropTime.toLocaleString() : 'Select Date & Time'}
+                </Text>
+              </TouchableOpacity>
             </ThemedCard>
 
             {/* Form Section: Pricing */}
@@ -610,14 +692,13 @@ export default function ExportManagement() {
       {/* Date Picker */}
       <DateTimePickerModal
         isVisible={datePicker.show}
-        mode="date"
+        mode={datePicker.target === 'expectedDropTime' ? 'datetime' : 'date'}
         minimumDate={new Date()}
         onConfirm={(date) => {
+          const target = datePicker.target;
           setDatePicker({ show: false, target: null });
-          setForm((f) => ({
-            ...f,
-            [datePicker.target === 'start' ? 'startDate' : 'endDate']: date,
-          }));
+          const field = target === 'start' ? 'startDate' : target === 'end' ? 'endDate' : 'expectedDropTime';
+          setForm((f) => ({ ...f, [field]: date }));
         }}
         onCancel={() => setDatePicker({ show: false, target: null })}
       />
@@ -870,6 +951,10 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
+  },
+  multilineInput: {
+    minHeight: 70,
+    textAlignVertical: 'top',
   },
   dateRow: {
     flexDirection: 'row',

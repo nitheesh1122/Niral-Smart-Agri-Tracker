@@ -14,9 +14,7 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import { IPADD } from '../ipadd';
+import api from '../services/api';
 import {
     colors,
     gradients,
@@ -28,48 +26,28 @@ import {
 import ThemedCard from './ThemedCard';
 import { SlideInView, FadeInView } from './AnimatedComponents';
 
-// Demo notifications (will be replaced with API)
-const DEMO_NOTIFICATIONS = [
-    {
-        _id: '1',
-        type: 'delivery',
-        title: 'Delivery Started',
-        message: 'Your shipment #1234 is now in transit',
-        timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-        read: false,
-    },
-    {
-        _id: '2',
-        type: 'message',
-        title: 'New Message',
-        message: 'Vendor ABC sent you a message',
-        timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-        read: false,
-    },
-    {
-        _id: '3',
-        type: 'alert',
-        title: 'Temperature Alert',
-        message: 'Goods temperature exceeded threshold',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-        read: true,
-    },
-    {
-        _id: '4',
-        type: 'success',
-        title: 'Delivery Completed',
-        message: 'Shipment #1230 has been delivered',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-        read: true,
-    },
-];
+// Maps backend Notification.type values (server/models/notificationModel.js)
+// to this screen's icon categories.
+const TYPE_TO_ICON_CATEGORY = {
+    JOB_ASSIGNED: 'delivery',
+    JOB_ACCEPTED: 'success',
+    JOB_REJECTED: 'alert',
+    SHIPMENT_STATUS_CHANGED: 'delivery',
+    CHAT_MESSAGE: 'message',
+    IOT_RISK_ALERT: 'alert',
+    RESCUE_SALE_AVAILABLE: 'success',
+    CUSTOMER_INTEREST: 'message',
+    ROUTE_SUGGESTION: 'delivery',
+};
 
 // ═══════════════════════════════════════════════════════════════════
 // NOTIFICATION ITEM
 // ═══════════════════════════════════════════════════════════════════
 const NotificationItem = ({ item, onPress, index }) => {
+    const category = TYPE_TO_ICON_CATEGORY[item.type] || 'default';
+
     const getIcon = () => {
-        switch (item.type) {
+        switch (category) {
             case 'delivery':
                 return '🚚';
             case 'message':
@@ -84,7 +62,7 @@ const NotificationItem = ({ item, onPress, index }) => {
     };
 
     const getIconBgColor = () => {
-        switch (item.type) {
+        switch (category) {
             case 'delivery':
                 return colors.primaryLight + '20';
             case 'message':
@@ -134,7 +112,7 @@ const NotificationItem = ({ item, onPress, index }) => {
                             <Text style={styles.message} numberOfLines={2}>
                                 {item.message}
                             </Text>
-                            <Text style={styles.timestamp}>{formatTime(item.timestamp)}</Text>
+                            <Text style={styles.timestamp}>{formatTime(item.createdAt)}</Text>
                         </View>
                     </View>
                 </ThemedCard>
@@ -153,14 +131,8 @@ const NotificationCenter = ({ onBack }) => {
 
     const fetchNotifications = useCallback(async () => {
         try {
-            // TODO: Replace with actual API call
-            // const userId = await AsyncStorage.getItem('userId');
-            // const res = await axios.get(`http://${IPADD}:5000/api/notifications/${userId}`);
-            // setNotifications(res.data);
-
-            // For now, use demo data
-            await new Promise((r) => setTimeout(r, 500));
-            setNotifications(DEMO_NOTIFICATIONS);
+            const res = await api.get('/api/user/notifications');
+            setNotifications(res.data || []);
         } catch (err) {
             console.error('Error fetching notifications:', err);
         } finally {
@@ -178,15 +150,24 @@ const NotificationCenter = ({ onBack }) => {
         fetchNotifications();
     };
 
-    const handleNotificationPress = (item) => {
-        // Mark as read and navigate based on type
+    const handleNotificationPress = async (item) => {
         setNotifications((prev) =>
             prev.map((n) => (n._id === item._id ? { ...n, read: true } : n))
         );
+        try {
+            await api.put(`/api/user/notifications/${item._id}/read`);
+        } catch (err) {
+            console.error('Failed to mark notification read:', err);
+        }
     };
 
-    const markAllRead = () => {
+    const markAllRead = async () => {
         setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+        try {
+            await api.put('/api/user/notifications/read-all');
+        } catch (err) {
+            console.error('Failed to mark all notifications read:', err);
+        }
     };
 
     const unreadCount = notifications.filter((n) => !n.read).length;

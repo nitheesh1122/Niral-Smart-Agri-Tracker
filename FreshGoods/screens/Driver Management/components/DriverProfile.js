@@ -88,7 +88,7 @@ const DeliveryHistoryItem = ({ item, index }) => {
       <View style={styles.deliveryRight}>
         <View style={[styles.statusBadge, { backgroundColor: statusColor + '15' }]}>
           <Text style={[styles.statusText, { color: statusColor }]}>
-            {item.status === 'Completed' ? '✓ Done' : item.status}
+            {item.status === 'COMPLETED' ? '✓ Done' : item.status}
           </Text>
         </View>
         <Text style={styles.deliveryDate}>
@@ -134,15 +134,15 @@ const DriverProfile = () => {
 
         setStats({
           total: exports.length,
-          completed: exports.filter((e) => e.status === 'Completed').length,
-          inProgress: exports.filter((e) => e.status === 'Started').length,
-          pending: exports.filter((e) => e.status === 'Pending' && e.driverResponse === 'accepted').length,
+          completed: exports.filter((e) => e.status === 'COMPLETED').length,
+          inProgress: exports.filter((e) => e.status === 'IN_TRANSIT').length,
+          pending: exports.filter((e) => e.status === 'ACCEPTED').length,
           rating: 4.8,
         });
 
         setRecentExports(
           exports
-            .filter((e) => e.status === 'Completed')
+            .filter((e) => e.status === 'COMPLETED')
             .sort((a, b) => new Date(b.endDate) - new Date(a.endDate))
             .slice(0, 5)
         );

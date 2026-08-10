@@ -25,9 +25,9 @@ const vendorSchema = new mongoose.Schema({
   collection: 'Vendor'
 });
 
-// Database indexes for faster queries
-vendorSchema.index({ username: 1 });
-vendorSchema.index({ email: 1 });
+// No separate .index({username:1}) / .index({email:1}) — `unique: true`
+// on those fields above already creates that index; declaring both
+// produced a duplicate-index warning at startup.
 
 // Hash password before saving
 vendorSchema.pre('save', async function (next) {
@@ -41,6 +41,15 @@ vendorSchema.pre('save', async function (next) {
     next(err);
   }
 });
+
+// Hide password when sending JSON (mirrors Driver's existing toJSON — this
+// was previously missing here, so login/profile responses leaked the
+// bcrypt hash to the client).
+vendorSchema.methods.toJSON = function () {
+  const obj = this.toObject();
+  delete obj.password;
+  return obj;
+};
 
 const Vendor = mongoose.model('Vendor', vendorSchema);
 module.exports = Vendor;

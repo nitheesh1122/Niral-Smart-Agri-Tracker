@@ -13,6 +13,9 @@ import {
     ActivityIndicator,
     RefreshControl,
     Alert,
+    Modal,
+    Switch,
+    ScrollView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,6 +37,18 @@ import {
     FadeInView,
     AnimatedCounter,
 } from '../../components/AnimatedComponents';
+import ExportLocationView from './vendorHomeComponents/exportLocationView';
+
+const EVENT_LABELS = {
+    SHIPMENT_CREATED: 'Shipment created',
+    DRIVER_ASSIGNED: 'Driver assigned',
+    DRIVER_ACCEPTED: 'Driver accepted',
+    DRIVER_REJECTED: 'Driver rejected',
+    DELIVERY_STARTED: 'Delivery started',
+    DELIVERY_COMPLETED: 'Delivery completed',
+    SHIPMENT_CANCELLED: 'Shipment cancelled',
+    SHIPMENT_STATUS_CHANGED: 'Status changed',
+};
 
 // ═══════════════════════════════════════════════════════════════════
 // FILTER TAB COMPONENT
@@ -61,98 +76,293 @@ const FilterTab = ({ label, isActive, onPress, count, color }) => (
 // ═══════════════════════════════════════════════════════════════════
 // EXPORT CARD COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-const ExportCard = ({ item, onStart, onComplete, index }) => {
+const ExportCard = ({ item, onStart, onComplete, onOpenDetails, index }) => {
     const statusColor = getStatusColor(item.status);
     const statusBg = getStatusBgColor(item.status);
-    const canStart = item.status === 'Assigned' && item.driverResponse === 'accepted';
-    const canComplete = item.status === 'Started';
+    const canStart = item.status === 'ACCEPTED';
+    const canComplete = item.status === 'IN_TRANSIT';
 
     return (
         <SlideInView delay={index * 80}>
-            <ThemedCard variant="elevated" style={styles.exportCard}>
-                {/* Header */}
-                <View style={styles.cardHeader}>
-                    <View style={styles.cardTitleSection}>
-                        <Text style={styles.cardTitle}>📦 {item.itemName}</Text>
-                        <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
-                            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-                            <Text style={[styles.statusText, { color: statusColor }]}>
-                                {item.status}
+            <TouchableOpacity activeOpacity={0.8} onPress={() => onOpenDetails(item)}>
+                <ThemedCard variant="elevated" style={styles.exportCard}>
+                    {/* Header */}
+                    <View style={styles.cardHeader}>
+                        <View style={styles.cardTitleSection}>
+                            <Text style={styles.cardTitle}>📦 {item.itemName}</Text>
+                            <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+                                <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+                                <Text style={[styles.statusText, { color: statusColor }]}>
+                                    {item.status}
+                                </Text>
+                            </View>
+                        </View>
+                    </View>
+
+                    {/* Info Grid */}
+                    <View style={styles.infoGrid}>
+                        <View style={styles.infoItem}>
+                            <Text style={styles.infoLabel}>Driver</Text>
+                            <Text style={styles.infoValue}>{item.driver?.name || 'N/A'}</Text>
+                        </View>
+                        <View style={styles.infoItem}>
+                            <Text style={styles.infoLabel}>Vehicle</Text>
+                            <Text style={styles.infoValue}>{item.vehicle?.vehicleNumber || 'N/A'}</Text>
+                        </View>
+                        <View style={styles.infoItem}>
+                            <Text style={styles.infoLabel}>Quantity</Text>
+                            <Text style={styles.infoValue}>{item.quantity} {item.unit || ''}</Text>
+                        </View>
+                        <View style={styles.infoItem}>
+                            <Text style={styles.infoLabel}>End Date</Text>
+                            <Text style={styles.infoValue}>
+                                {new Date(item.endDate).toLocaleDateString()}
                             </Text>
                         </View>
                     </View>
-                </View>
 
-                {/* Info Grid */}
-                <View style={styles.infoGrid}>
-                    <View style={styles.infoItem}>
-                        <Text style={styles.infoLabel}>Driver</Text>
-                        <Text style={styles.infoValue}>{item.driver?.name || 'N/A'}</Text>
-                    </View>
-                    <View style={styles.infoItem}>
-                        <Text style={styles.infoLabel}>Vehicle</Text>
-                        <Text style={styles.infoValue}>{item.vehicle?.vehicleNumber || 'N/A'}</Text>
-                    </View>
-                    <View style={styles.infoItem}>
-                        <Text style={styles.infoLabel}>Quantity</Text>
-                        <Text style={styles.infoValue}>{item.quantity}</Text>
-                    </View>
-                    <View style={styles.infoItem}>
-                        <Text style={styles.infoLabel}>End Date</Text>
-                        <Text style={styles.infoValue}>
-                            {new Date(item.endDate).toLocaleDateString()}
-                        </Text>
-                    </View>
-                </View>
-
-                {/* Route Preview */}
-                {item.routes && item.routes.length > 0 && (
-                    <View style={styles.routePreview}>
-                        <Text style={styles.routeIcon}>🛣️</Text>
-                        <Text style={styles.routeText} numberOfLines={1}>
-                            {item.routes[0]} → {item.routes[item.routes.length - 1]}
-                        </Text>
-                    </View>
-                )}
-
-                {/* Action Buttons */}
-                <View style={styles.cardActions}>
-                    {canStart && (
-                        <ThemedButton
-                            title="Start Delivery"
-                            variant="success"
-                            size="small"
-                            icon="🚀"
-                            onPress={() => onStart(item)}
-                            style={styles.actionBtn}
-                        />
-                    )}
-                    {canComplete && (
-                        <ThemedButton
-                            title="Mark Complete"
-                            variant="primary"
-                            size="small"
-                            icon="✅"
-                            onPress={() => onComplete(item)}
-                            style={styles.actionBtn}
-                        />
-                    )}
-                    {!canStart && !canComplete && (
-                        <View style={styles.statusInfo}>
-                            <Text style={styles.statusInfoText}>
-                                {item.status === 'Pending'
-                                    ? 'Waiting for driver acceptance'
-                                    : item.status === 'Completed'
-                                        ? 'Delivery completed'
-                                        : 'No action available'}
+                    {/* Route Preview */}
+                    {item.routes && item.routes.length > 0 && (
+                        <View style={styles.routePreview}>
+                            <Text style={styles.routeIcon}>🛣️</Text>
+                            <Text style={styles.routeText} numberOfLines={1}>
+                                {item.routes[0]} → {item.routes[item.routes.length - 1]}
                             </Text>
                         </View>
                     )}
-                </View>
-            </ThemedCard>
+
+                    {/* Rejection reason */}
+                    {item.status === 'REJECTED' && item.rejectionReason && (
+                        <View style={styles.rejectionBox}>
+                            <Text style={styles.rejectionLabel}>✕ Rejected by driver</Text>
+                            <Text style={styles.rejectionText}>{item.rejectionReason}</Text>
+                        </View>
+                    )}
+
+                    {/* Action Buttons */}
+                    <View style={styles.cardActions}>
+                        {canStart && (
+                            <ThemedButton
+                                title="Start Delivery"
+                                variant="success"
+                                size="small"
+                                icon="🚀"
+                                onPress={() => onStart(item)}
+                                style={styles.actionBtn}
+                            />
+                        )}
+                        {canComplete && (
+                            <ThemedButton
+                                title="Mark Complete"
+                                variant="primary"
+                                size="small"
+                                icon="✅"
+                                onPress={() => onComplete(item)}
+                                style={styles.actionBtn}
+                            />
+                        )}
+                        {!canStart && !canComplete && (
+                            <View style={styles.statusInfo}>
+                                <Text style={styles.statusInfoText}>
+                                    {item.status === 'ASSIGNED'
+                                        ? 'Waiting for driver acceptance'
+                                        : item.status === 'COMPLETED'
+                                            ? 'Delivery completed'
+                                            : item.status === 'REJECTED'
+                                                ? 'Rejected — reassign or delete to retry'
+                                                : 'No action available'}
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+                    <Text style={styles.detailsHint}>Tap for details, tracking permissions & timeline →</Text>
+                </ThemedCard>
+            </TouchableOpacity>
         </SlideInView>
     );
 };
+
+// ═══════════════════════════════════════════════════════════════════
+// SHIPMENT DETAILS MODAL — full field set, tracking permissions, timeline
+// ═══════════════════════════════════════════════════════════════════
+const ShipmentDetailsModal = ({ item, onClose, onViewLocation }) => {
+    const [customers, setCustomers] = useState([]);
+    const [permissions, setPermissions] = useState({}); // customerId -> boolean
+    const [savingPermissions, setSavingPermissions] = useState(false);
+    const [loadingCustomers, setLoadingCustomers] = useState(true);
+    const [events, setEvents] = useState([]);
+    const [loadingEvents, setLoadingEvents] = useState(true);
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const res = await api.get('/chat/customers/get');
+                setCustomers(res.data || []);
+                const initial = {};
+                (item.trackingViewers || []).forEach((v) => {
+                    const id = v.customer?._id || v.customer;
+                    initial[id] = v.allowed;
+                });
+                setPermissions(initial);
+            } catch (err) {
+                console.error('Failed to load customers:', err);
+            } finally {
+                setLoadingCustomers(false);
+            }
+        })();
+
+        (async () => {
+            try {
+                const res = await api.get(`/api/vendor/export/${item._id}/events`);
+                setEvents(res.data || []);
+            } catch (err) {
+                console.error('Failed to load shipment events:', err);
+            } finally {
+                setLoadingEvents(false);
+            }
+        })();
+    }, [item._id]);
+
+    const savePermissions = async () => {
+        setSavingPermissions(true);
+        try {
+            const viewers = Object.entries(permissions)
+                .filter(([, allowed]) => allowed !== undefined)
+                .map(([customerId, allowed]) => ({ customerId, allowed }));
+
+            await api.put(`/api/vendor/export/${item._id}/tracking-permissions`, { viewers });
+            Alert.alert('Success', 'Tracking permissions updated');
+        } catch (err) {
+            Alert.alert('Error', err.response?.data?.error || 'Failed to update tracking permissions');
+        } finally {
+            setSavingPermissions(false);
+        }
+    };
+
+    const canViewLocation = item.status === 'IN_TRANSIT' || item.status === 'COMPLETED';
+
+    return (
+        <Modal visible animationType="slide" onRequestClose={onClose}>
+            <View style={styles.detailsModalContainer}>
+                <LinearGradient colors={gradients.forest} style={styles.detailsModalHeader}>
+                    <TouchableOpacity onPress={onClose}>
+                        <Text style={styles.modalCloseText}>✕</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.detailsModalTitle}>{item.itemName}</Text>
+                    <View style={{ width: 24 }} />
+                </LinearGradient>
+
+                <ScrollView style={styles.detailsScroll}>
+                    {/* Core fields */}
+                    <Text style={styles.detailsSectionTitle}>Shipment Details</Text>
+                    <ThemedCard variant="outlined" style={styles.detailsCard}>
+                        <DetailRow label="Status" value={item.status} />
+                        <DetailRow label="Product" value={item.itemName} />
+                        <DetailRow label="Quantity" value={`${item.quantity} ${item.unit || ''}`} />
+                        <DetailRow label="Vendor" value="You" />
+                        <DetailRow label="Driver" value={item.driver?.name || 'Unassigned'} />
+                        <DetailRow label="Vehicle" value={item.vehicle?.vehicleNumber || 'N/A'} />
+                        <DetailRow label="Customer" value={item.customer?.name || 'None assigned'} />
+                        <DetailRow label="Start Date" value={new Date(item.startDate).toLocaleString()} />
+                        <DetailRow label="End Date" value={new Date(item.endDate).toLocaleString()} />
+                        <DetailRow
+                            label="Expected Drop Time"
+                            value={item.expectedDropTime ? new Date(item.expectedDropTime).toLocaleString() : 'Not set'}
+                        />
+                        <DetailRow label="Driver Salary" value={item.driverSalary != null ? `₹${item.driverSalary}` : 'N/A'} />
+                        <DetailRow
+                            label="Start Location"
+                            value={`${item.startLocation?.latitude?.toFixed(4)}, ${item.startLocation?.longitude?.toFixed(4)}`}
+                        />
+                        <DetailRow
+                            label="End Location"
+                            value={`${item.endLocation?.latitude?.toFixed(4)}, ${item.endLocation?.longitude?.toFixed(4)}`}
+                        />
+                        <DetailRow label="Instructions" value={item.instructions || 'None'} />
+                        {item.status === 'REJECTED' && (
+                            <DetailRow label="Rejection Reason" value={item.rejectionReason || 'No reason given'} />
+                        )}
+                    </ThemedCard>
+
+                    {/* Live location */}
+                    {canViewLocation && (
+                        <ThemedButton
+                            title="View Live Location"
+                            variant="primary"
+                            icon="📍"
+                            onPress={() => onViewLocation(item)}
+                            style={styles.detailsActionBtn}
+                        />
+                    )}
+
+                    {/* Tracking permissions */}
+                    <Text style={styles.detailsSectionTitle}>Customer Tracking Permissions</Text>
+                    <Text style={styles.detailsSectionSubtitle}>
+                        Tracking is off by default. Toggle a customer on to let them see this
+                        shipment's live status and location.
+                    </Text>
+                    <ThemedCard variant="outlined" style={styles.detailsCard}>
+                        {loadingCustomers ? (
+                            <ActivityIndicator color={colors.primary} />
+                        ) : customers.length === 0 ? (
+                            <Text style={styles.emptySubtext}>No customers found</Text>
+                        ) : (
+                            customers.map((c) => (
+                                <View key={c._id} style={styles.permissionRow}>
+                                    <Text style={styles.permissionName}>{c.name}</Text>
+                                    <Switch
+                                        value={!!permissions[c._id]}
+                                        onValueChange={(val) =>
+                                            setPermissions((p) => ({ ...p, [c._id]: val }))
+                                        }
+                                    />
+                                </View>
+                            ))
+                        )}
+                        <ThemedButton
+                            title={savingPermissions ? 'Saving...' : 'Save Tracking Permissions'}
+                            variant="gradient"
+                            onPress={savePermissions}
+                            disabled={savingPermissions || loadingCustomers}
+                            loading={savingPermissions}
+                            style={styles.detailsActionBtn}
+                        />
+                    </ThemedCard>
+
+                    {/* Timeline */}
+                    <Text style={styles.detailsSectionTitle}>Shipment Timeline</Text>
+                    <ThemedCard variant="outlined" style={styles.detailsCard}>
+                        {loadingEvents ? (
+                            <ActivityIndicator color={colors.primary} />
+                        ) : events.length === 0 ? (
+                            <Text style={styles.emptySubtext}>No events recorded yet</Text>
+                        ) : (
+                            events.map((e) => (
+                                <View key={e._id} style={styles.timelineRow}>
+                                    <Text style={styles.timelineEventLabel}>
+                                        {EVENT_LABELS[e.eventType] || e.eventType}
+                                    </Text>
+                                    <Text style={styles.timelineEventTime}>
+                                        {new Date(e.timestamp).toLocaleString()}
+                                    </Text>
+                                </View>
+                            ))
+                        )}
+                    </ThemedCard>
+
+                    <View style={{ height: spacing.xxl }} />
+                </ScrollView>
+            </View>
+        </Modal>
+    );
+};
+
+const DetailRow = ({ label, value }) => (
+    <View style={styles.detailRow}>
+        <Text style={styles.detailRowLabel}>{label}</Text>
+        <Text style={styles.detailRowValue}>{value}</Text>
+    </View>
+);
 
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -163,12 +373,16 @@ const VendorExportDashboard = () => {
     const [exports, setExports] = useState([]);
     const [filteredExports, setFilteredExports] = useState([]);
     const [activeFilter, setActiveFilter] = useState('all');
+    const [detailsItem, setDetailsItem] = useState(null);
+    const [locationItem, setLocationItem] = useState(null);
     const [stats, setStats] = useState({
         total: 0,
         pending: 0,
         assigned: 0,
         started: 0,
         completed: 0,
+        rejected: 0,
+        cancelled: 0,
     });
 
     const fetchExports = useCallback(async () => {
@@ -184,10 +398,12 @@ const VendorExportDashboard = () => {
             // Calculate stats
             setStats({
                 total: data.length,
-                pending: data.filter((e) => e.status === 'Pending').length,
-                assigned: data.filter((e) => e.status === 'Assigned').length,
-                started: data.filter((e) => e.status === 'Started').length,
-                completed: data.filter((e) => e.status === 'Completed').length,
+                pending: data.filter((e) => e.status === 'ASSIGNED' || e.status === 'ACCEPTED').length,
+                assigned: data.filter((e) => e.status === 'ASSIGNED').length,
+                started: data.filter((e) => e.status === 'IN_TRANSIT').length,
+                completed: data.filter((e) => e.status === 'COMPLETED').length,
+                rejected: data.filter((e) => e.status === 'REJECTED').length,
+                cancelled: data.filter((e) => e.status === 'CANCELLED').length,
             });
         } catch (err) {
             console.error('Error fetching exports:', err);
@@ -270,6 +486,15 @@ const VendorExportDashboard = () => {
         );
     }
 
+    if (locationItem) {
+        return (
+            <ExportLocationView
+                selectedExport={locationItem}
+                onBack={() => setLocationItem(null)}
+            />
+        );
+    }
+
     return (
         <View style={styles.container}>
             {/* Stats Header */}
@@ -317,10 +542,12 @@ const VendorExportDashboard = () => {
                     showsHorizontalScrollIndicator={false}
                     data={[
                         { key: 'all', label: 'All', count: stats.total, color: colors.primary },
-                        { key: 'pending', label: 'Pending', count: stats.pending, color: colors.warning },
-                        { key: 'assigned', label: 'Assigned', count: stats.assigned, color: colors.info },
-                        { key: 'started', label: 'In Transit', count: stats.started, color: colors.tertiary },
+                        { key: 'assigned', label: 'Assigned', count: stats.assigned, color: colors.warning },
+                        { key: 'accepted', label: 'Accepted', count: stats.pending - stats.assigned, color: colors.info },
+                        { key: 'in_transit', label: 'In Transit', count: stats.started, color: colors.tertiary },
                         { key: 'completed', label: 'Completed', count: stats.completed, color: colors.success },
+                        { key: 'rejected', label: 'Rejected', count: stats.rejected, color: colors.error },
+                        { key: 'cancelled', label: 'Cancelled', count: stats.cancelled, color: colors.error },
                     ]}
                     renderItem={({ item }) => (
                         <FilterTab
@@ -345,6 +572,7 @@ const VendorExportDashboard = () => {
                         index={index}
                         onStart={handleStart}
                         onComplete={handleComplete}
+                        onOpenDetails={setDetailsItem}
                     />
                 )}
                 contentContainerStyle={styles.listContent}
@@ -367,6 +595,17 @@ const VendorExportDashboard = () => {
                     </FadeInView>
                 }
             />
+
+            {detailsItem && (
+                <ShipmentDetailsModal
+                    item={detailsItem}
+                    onClose={() => setDetailsItem(null)}
+                    onViewLocation={(item) => {
+                        setDetailsItem(null);
+                        setLocationItem(item);
+                    }}
+                />
+            )}
         </View>
     );
 };
@@ -383,6 +622,114 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    rejectionBox: {
+        backgroundColor: colors.errorBg,
+        borderRadius: borderRadius.md,
+        padding: spacing.sm,
+        marginBottom: spacing.md,
+    },
+    rejectionLabel: {
+        ...typography.captionMedium,
+        color: colors.error,
+    },
+    rejectionText: {
+        ...typography.bodySmall,
+        color: colors.text.secondary,
+        marginTop: 2,
+    },
+    detailsHint: {
+        ...typography.caption,
+        color: colors.text.muted,
+        textAlign: 'center',
+        marginTop: spacing.sm,
+    },
+    detailsModalContainer: {
+        flex: 1,
+        backgroundColor: colors.background.primary,
+    },
+    detailsModalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.lg,
+        paddingTop: spacing.xl,
+    },
+    modalCloseText: {
+        fontSize: 20,
+        color: colors.text.light,
+        fontWeight: 'bold',
+    },
+    detailsModalTitle: {
+        ...typography.h3,
+        color: colors.text.light,
+        flex: 1,
+        textAlign: 'center',
+    },
+    detailsScroll: {
+        flex: 1,
+        padding: spacing.md,
+    },
+    detailsSectionTitle: {
+        ...typography.bodyMedium,
+        color: colors.text.primary,
+        marginTop: spacing.md,
+        marginBottom: spacing.xs,
+    },
+    detailsSectionSubtitle: {
+        ...typography.caption,
+        color: colors.text.muted,
+        marginBottom: spacing.sm,
+    },
+    detailsCard: {
+        marginBottom: spacing.md,
+    },
+    detailRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingVertical: spacing.xs,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border.light,
+    },
+    detailRowLabel: {
+        ...typography.bodySmall,
+        color: colors.text.muted,
+    },
+    detailRowValue: {
+        ...typography.bodySmall,
+        color: colors.text.primary,
+        flex: 1,
+        textAlign: 'right',
+        marginLeft: spacing.md,
+    },
+    detailsActionBtn: {
+        marginTop: spacing.md,
+    },
+    permissionRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: spacing.sm,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border.light,
+    },
+    permissionName: {
+        ...typography.body,
+        color: colors.text.primary,
+    },
+    timelineRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingVertical: spacing.xs,
+    },
+    timelineEventLabel: {
+        ...typography.bodySmall,
+        color: colors.text.primary,
+    },
+    timelineEventTime: {
+        ...typography.caption,
+        color: colors.text.muted,
     },
     loadingText: {
         ...typography.body,

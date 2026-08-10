@@ -1,11 +1,18 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const Vendor = require('../models/vendorModel');
 const Driver = require('../models/driverModel');
+const Customer = require('../models/customerModel');
 const Vehicle = require('../models/VehicleModel');
 const Device = require('../models/deviceModel');
-const Export = require('../models/ExportModel');
+const Export = require('../models/shipmentModel');
+const ShipmentEvent = require('../models/shipmentEventModel');
 const { authorize } = require('../middleware/auth');
+const { STATUSES, assertTransition, DELETABLE_STATUSES } = require('../utils/shipmentStateMachine');
+const logShipmentEvent = require('../utils/logShipmentEvent');
+const { createNotification } = require('../services/notificationService');
+const notifyEligibleCustomers = require('../utils/notifyEligibleCustomers');
 
 // Every route in this file is vendor-only. Scoped with router.use() rather
 // than at the server.js mount point, because serviceRequestRoutes.js shares
@@ -149,7 +156,7 @@ router.post('/add-vehicle', async (req, res) => {
     if (!device) return res.status(400).json({ message: 'Device is already assigned or not found' });
 
     // Create vehicle
-    const vehicle = new Vehicle({ _id, vehicleNumber, brand, capacity, deviceId });
+    const vehicle = new Vehicle({ _id, vehicleNumber, brand, capacity, deviceId, vendor: vendorId, device: device._id });
     await vehicle.save();
 
     // Update vendor and device
@@ -157,6 +164,7 @@ router.post('/add-vehicle', async (req, res) => {
     await vendor.save();
 
     device.isAssigned = true;
+    device.vehicle = vehicle._id;
     await device.save();
 
     res.status(201).json({ message: 'Vehicle added and assigned successfully' });
@@ -258,16 +266,50 @@ router.post('/export/add/:vendorId', async (req, res) => {
     }
     const {
       itemName, startDate, endDate, quantity, costPrice, salePrice,
-      driver, vehicle, salary, startLocation, endLocation
+      driver, vehicle, salary, startLocation, endLocation,
+      // Optional Stage 4 additions — none of these are sent by the current
+      // mobile create form, so all must tolerate being absent.
+      product, unit, instructions, expectedDropTime, customer,
     } = req.body;
 
     if (!itemName || !startDate || !endDate || !quantity || !costPrice ||
       !salePrice || !driver || !vehicle || !salary || !startLocation || !endLocation) {
       return res.status(400).json({ error: 'All fields are required' });
     }
+    if (Number(quantity) <= 0 || Number(costPrice) < 0 || Number(salePrice) < 0 || Number(salary) < 0) {
+      return res.status(400).json({ error: 'quantity, costPrice, salePrice and salary must be non-negative (quantity must be greater than 0)' });
+    }
 
     const start = new Date(startDate);
     const end = new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+      return res.status(400).json({ error: 'endDate must be a valid date on or after startDate' });
+    }
+
+    // A vendor may only assign resources they actually control — without
+    // this check, any authenticated vendor could pass another vendor's
+    // driverId/vehicleId here and it would silently succeed (the driver/
+    // vehicle documents themselves don't carry an ownership check on their
+    // own, unlike every other route in this file).
+    const owningVendor = await Vendor.findById(vendorId).select('drivers vehicles');
+    if (!owningVendor) {
+      return res.status(404).json({ error: 'Vendor not found' });
+    }
+    if (!owningVendor.drivers.some((d) => d.toString() === driver)) {
+      return res.status(403).json({ error: 'That driver is not one of your drivers.' });
+    }
+    if (!owningVendor.vehicles.some((v) => v.toString() === String(vehicle))) {
+      return res.status(403).json({ error: 'That vehicle is not one of your vehicles.' });
+    }
+    if (customer) {
+      if (!mongoose.isValidObjectId(customer)) {
+        return res.status(400).json({ error: 'Invalid customer id' });
+      }
+      const customerExists = await Customer.exists({ _id: customer });
+      if (!customerExists) {
+        return res.status(400).json({ error: 'Customer not found' });
+      }
+    }
 
     const conflict = await Export.find({
       $and: [
@@ -280,19 +322,36 @@ router.post('/export/add/:vendorId', async (req, res) => {
     if (conflict.length > 0) {
       return res.status(400).json({ error: 'Driver or vehicle is not available for selected dates' });
     }
-    console.log(vendorId, "This is the vendor id at vendor routes line 248")
+
+    // Resolve the device already mounted on this vehicle (if any) so the
+    // shipment carries a direct reference without changing how the IoT
+    // read-side actually looks up sensor/location data (still by
+    // vehicle.deviceId === Device.deviceName).
+    const vehicleDoc = await Vehicle.findById(vehicle);
+    const deviceDoc = vehicleDoc?.deviceId
+      ? await Device.findOne({ deviceName: vehicleDoc.deviceId })
+      : null;
+
     const newExport = new Export({
       vendorId,
+      product: product || null,
       itemName,
+      unit: unit || null,
       startDate: start,
       endDate: end,
+      expectedDropTime: expectedDropTime ? new Date(expectedDropTime) : null,
       quantity,
       costPrice,
       salePrice,
       driver,
       vehicle,
+      device: deviceDoc?._id || null,
+      customer: customer || null,
+      driverSalary: salary,
+      instructions: instructions || null,
       startLocation,
-      endLocation
+      endLocation,
+      status: STATUSES.ASSIGNED,
     });
 
     await newExport.save();
@@ -304,9 +363,16 @@ router.post('/export/add/:vendorId', async (req, res) => {
       curr.setDate(curr.getDate() + 1);
     }
 
-    await Driver.findByIdAndUpdate(driver, {
+    const driverDoc = await Driver.findByIdAndUpdate(driver, {
       $push: {
         work: {
+          // exportId ties this embedded record to the shipment that
+          // created it, so it can be removed precisely on delete (see
+          // DELETE /export/:id below) instead of matching by vendorId
+          // alone, which previously matched either every work entry for
+          // that vendor or (due to a string/ObjectId mismatch) none of
+          // them.
+          exportId: newExport._id,
           vendorId,
           workDuration: [{ startDate: start, endDate: end }],
           salary,
@@ -314,6 +380,19 @@ router.post('/export/add/:vendorId', async (req, res) => {
         },
         workDates: { $each: dates }
       }
+    }, { new: true });
+
+    await logShipmentEvent(newExport._id, 'SHIPMENT_CREATED', vendorId, 'Vendor');
+    await logShipmentEvent(newExport._id, 'DRIVER_ASSIGNED', vendorId, 'Vendor', { driver });
+    await createNotification({
+      recipientId: driver,
+      recipientModel: 'Driver',
+      type: 'JOB_ASSIGNED',
+      title: 'New shipment assigned',
+      message: `You've been assigned to deliver ${itemName}.`,
+      relatedEntityType: 'Shipment',
+      relatedEntityId: newExport._id,
+      recipientPushToken: driverDoc?.expoPushToken,
     });
 
     res.status(201).json({ message: 'Export created successfully', export: newExport });
@@ -346,14 +425,16 @@ router.get('/export/:id', async (req, res) => {
   }
 });
 
-// PUT /api/vendor/export/:id - Update export status
+// PUT /api/vendor/export/:id - Update export status (not currently called by
+// the mobile app, which uses the dedicated start/complete endpoints below;
+// kept for API completeness, now gated by the same state machine)
 router.put('/export/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!status || !['Pending', 'Started', 'Completed'].includes(status)) {
-      return res.status(400).json({ error: 'Valid status is required' });
+    if (!status) {
+      return res.status(400).json({ error: 'status is required' });
     }
 
     const existing = await Export.findById(id);
@@ -364,11 +445,19 @@ router.put('/export/:id', async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Not your export.' });
     }
 
+    try {
+      assertTransition(existing.status, status);
+    } catch (transitionError) {
+      return res.status(400).json({ error: transitionError.message });
+    }
+
     const updatedExport = await Export.findByIdAndUpdate(
       id,
       { status },
       { new: true }
     ).populate('driver', 'name').populate('vehicle', 'vehicleNumber model');
+
+    await logShipmentEvent(id, status === STATUSES.CANCELLED ? 'SHIPMENT_CANCELLED' : 'SHIPMENT_STATUS_CHANGED', req.user.id, 'Vendor', { from: existing.status, to: status });
 
     res.json({ message: 'Export updated successfully', export: updatedExport });
   } catch (error) {
@@ -390,20 +479,35 @@ router.delete('/export/:id', async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Not your export.' });
     }
 
-    if (exportData.status !== 'Pending') {
-      return res.status(400).json({ error: 'Cannot delete export that is not pending' });
+    if (!DELETABLE_STATUSES.includes(exportData.status)) {
+      return res.status(400).json({ error: `Cannot delete export in status ${exportData.status}` });
     }
 
-    // Remove work record from driver
-    await Driver.findByIdAndUpdate(exportData.driver, {
-      $pull: {
-        work: { vendorId: exportData.vendorId },
-        workDates: {
-          $gte: exportData.startDate,
-          $lte: exportData.endDate
+    // Remove the embedded work record this shipment created. Previously
+    // this matched `work: { vendorId: exportData.vendorId }` against
+    // `exportData.driver` — a string/ObjectId mismatch meant it silently
+    // matched nothing, so deleted shipments left stale work entries behind
+    // forever. It also targeted exportData.driver, which is null on a
+    // REJECTED shipment (deletable, per DELETABLE_STATUSES) even though
+    // the original driver's work[] entry (tagged at creation, see
+    // /export/add) still exists. Matching by the shipment's own exportId
+    // across all drivers fixes both problems.
+    await Driver.updateMany(
+      { 'work.exportId': exportData._id },
+      {
+        $pull: {
+          work: { exportId: exportData._id },
+          // workDates has no per-shipment key (flat array shared across
+          // all of a driver's shipments), so this remains a best-effort
+          // range removal — precise only when no other shipment for this
+          // driver overlaps the same dates.
+          workDates: {
+            $gte: exportData.startDate,
+            $lte: exportData.endDate
+          }
         }
       }
-    });
+    );
 
     await Export.findByIdAndDelete(id);
 
@@ -426,7 +530,7 @@ router.get('/export/passedstatus/:vendorId', async (req, res) => {
   try {
     const startedExports = await Export.find({
       vendorId: vendorId,
-      status: 'Started'
+      status: STATUSES.IN_TRANSIT
     })
       .populate('driver', 'name mobileNo')
       .populate('vehicle')
@@ -594,7 +698,10 @@ router.get('/exports/:vendorId', async (req, res) => {
   }
 });
 
-// Vendor starts an export (after driver accepts)
+// Vendor starts an export (after driver accepts). Driver-initiated start
+// (driverRoutes.js) reaches the same ACCEPTED -> IN_TRANSIT transition
+// through the same state-machine check, so whichever side calls first is
+// the one that actually starts it.
 router.put('/export/start/:exportId', async (req, res) => {
   try {
     const exp = await Export.findById(req.params.exportId);
@@ -603,19 +710,24 @@ router.put('/export/start/:exportId', async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Not your export.' });
     }
 
-    if (exp.driverResponse !== 'accepted') {
-      return res.status(400).json({ error: 'Driver must accept the export first' });
-    }
-
-    if (exp.status !== 'Pending') {
-      return res.status(400).json({ error: 'Export already started or completed' });
+    try {
+      assertTransition(exp.status, STATUSES.IN_TRANSIT);
+    } catch (transitionError) {
+      return res.status(400).json({ error: transitionError.message });
     }
 
     const updated = await Export.findByIdAndUpdate(
       req.params.exportId,
-      { status: 'Started' },
+      { status: STATUSES.IN_TRANSIT },
       { new: true }
     ).populate('driver', 'name mobileNo');
+
+    await logShipmentEvent(exp._id, 'DELIVERY_STARTED', req.user.id, 'Vendor');
+    await notifyEligibleCustomers(exp, {
+      type: 'SHIPMENT_STATUS_CHANGED',
+      title: 'Your delivery is on the way',
+      message: `${exp.itemName} is now in transit.`,
+    });
 
     res.json({ success: true, message: 'Export started', export: updated });
   } catch (err) {
@@ -633,20 +745,91 @@ router.put('/export/complete/:exportId', async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Not your export.' });
     }
 
-    if (exp.status !== 'Started') {
-      return res.status(400).json({ error: 'Export must be started before completing' });
+    try {
+      assertTransition(exp.status, STATUSES.COMPLETED);
+    } catch (transitionError) {
+      return res.status(400).json({ error: transitionError.message });
     }
 
     const updated = await Export.findByIdAndUpdate(
       req.params.exportId,
-      { status: 'Completed' },
+      { status: STATUSES.COMPLETED },
       { new: true }
     ).populate('driver', 'name mobileNo');
+
+    await logShipmentEvent(exp._id, 'DELIVERY_COMPLETED', req.user.id, 'Vendor');
+    await notifyEligibleCustomers(exp, {
+      type: 'SHIPMENT_STATUS_CHANGED',
+      title: 'Delivery completed',
+      message: `${exp.itemName} has been delivered.`,
+    });
 
     res.json({ success: true, message: 'Export completed', export: updated });
   } catch (err) {
     console.error('Vendor complete export error:', err);
     res.status(500).json({ error: 'Failed to complete export' });
+  }
+});
+
+// GET /api/vendor/export/:id/events — shipment timeline for the owning vendor
+router.get('/export/:id/events', async (req, res) => {
+  try {
+    const exp = await Export.findById(req.params.id);
+    if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (exp.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
+    }
+
+    const events = await ShipmentEvent.find({ shipment: exp._id }).sort({ timestamp: 1 });
+    res.json(events);
+  } catch (err) {
+    console.error('Error fetching shipment events:', err);
+    res.status(500).json({ error: 'Failed to fetch shipment events' });
+  }
+});
+
+// PUT /api/vendor/export/:id/tracking-permissions
+// Body: { viewers: [{ customerId, allowed }] } — full replace of the list.
+// Tracking is explicit-grant only (Stage 5 §6) — a customer not listed
+// here, or listed with allowed:false, gets 403 from /api/customer/track.
+router.put('/export/:id/tracking-permissions', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { viewers } = req.body;
+
+    if (!Array.isArray(viewers)) {
+      return res.status(400).json({ error: 'viewers must be an array of { customerId, allowed }' });
+    }
+
+    const exp = await Export.findById(id);
+    if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (exp.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
+    }
+
+    for (const v of viewers) {
+      if (!v.customerId || !mongoose.isValidObjectId(v.customerId)) {
+        return res.status(400).json({ error: 'Each viewer entry requires a valid customerId' });
+      }
+    }
+    const customerIds = viewers.map((v) => v.customerId);
+    const foundCount = await Customer.countDocuments({ _id: { $in: customerIds } });
+    if (foundCount !== new Set(customerIds).size) {
+      return res.status(400).json({ error: 'One or more customerIds do not exist' });
+    }
+
+    exp.trackingViewers = viewers.map((v) => ({
+      customer: v.customerId,
+      allowed: v.allowed !== false,
+      addedAt: new Date(),
+    }));
+
+    await exp.save();
+
+    res.json({ success: true, message: 'Tracking permissions updated', trackingViewers: exp.trackingViewers });
+  } catch (err) {
+    console.error('Error updating tracking permissions:', err);
+    res.status(500).json({ error: 'Failed to update tracking permissions' });
   }
 });
 

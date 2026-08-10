@@ -28,10 +28,10 @@ import ThemedButton from './ThemedButton';
 // ═══════════════════════════════════════════════════════════════════
 const STATUS_OPTIONS = [
     { value: 'all', label: 'All', color: colors.text.primary },
-    { value: 'Pending', label: 'Pending', color: colors.warning },
-    { value: 'Assigned', label: 'Assigned', color: colors.info },
-    { value: 'Started', label: 'In Transit', color: colors.tertiary },
-    { value: 'Completed', label: 'Completed', color: colors.success },
+    { value: 'ASSIGNED', label: 'Pending', color: colors.warning },
+    { value: 'ACCEPTED', label: 'Accepted', color: colors.info },
+    { value: 'IN_TRANSIT', label: 'In Transit', color: colors.tertiary },
+    { value: 'COMPLETED', label: 'Completed', color: colors.success },
 ];
 
 const DATE_RANGE_OPTIONS = [

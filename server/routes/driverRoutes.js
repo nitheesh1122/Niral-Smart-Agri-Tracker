@@ -5,7 +5,11 @@ const Vendor = require('../models/vendorModel');
 const Driver = require('../models/driverModel');
 const Vehicle = require('../models/VehicleModel');
 const Device = require('../models/deviceModel');
-const Export = require('../models/ExportModel');
+const Export = require('../models/shipmentModel');
+const { STATUSES, assertTransition } = require('../utils/shipmentStateMachine');
+const logShipmentEvent = require('../utils/logShipmentEvent');
+const { createNotification } = require('../services/notificationService');
+const notifyEligibleCustomers = require('../utils/notifyEligibleCustomers');
 
 router.get('/export/driver/:driverId', async (req, res) => {
   try {
@@ -13,7 +17,8 @@ router.get('/export/driver/:driverId', async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Not your account.' });
     }
     const exports = await Export.find({ driver: req.params.driverId })
-      .populate('vendorId', 'name mobileNo'); // ✅ populate from vendorId
+      .populate('vendorId', 'name mobileNo')
+      .populate('customer', 'name'); // driver-facing job list — see DriverAssignedExports.js
 
     res.json(exports);
   } catch (err) {
@@ -116,6 +121,10 @@ async function getDistrictsBetween(start, end) {
   }
 }
 
+// Driver-initiated start. Previously this endpoint had no check that the
+// driver had actually accepted the job first (a real gap — a driver could
+// start a shipment they'd never accepted); it now goes through the same
+// ACCEPTED -> IN_TRANSIT transition as the vendor-initiated start endpoint.
 router.put('/export/start/:id', async (req, res) => {
   console.log('Starting export with ID:', req.params.id);
   try {
@@ -125,13 +134,37 @@ router.put('/export/start/:id', async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
     }
 
+    try {
+      assertTransition(exp.status, STATUSES.IN_TRANSIT);
+    } catch (transitionError) {
+      return res.status(400).json({ error: transitionError.message });
+    }
+
     const routes = await getDistrictsBetween(exp.startLocation, exp.endLocation);
 
     const updated = await Export.findByIdAndUpdate(
       req.params.id,
-      { status: 'Started', routes },
+      { status: STATUSES.IN_TRANSIT, routes },
       { new: true }
     );
+
+    await logShipmentEvent(exp._id, 'DELIVERY_STARTED', req.user.id, 'Driver');
+    const vendorForStartPush = await Vendor.findById(exp.vendorId).select('expoPushToken');
+    await createNotification({
+      recipientId: exp.vendorId,
+      recipientModel: 'Vendor',
+      type: 'SHIPMENT_STATUS_CHANGED',
+      title: 'Delivery started',
+      message: `Your driver started the delivery for ${exp.itemName}.`,
+      relatedEntityType: 'Shipment',
+      relatedEntityId: exp._id,
+      recipientPushToken: vendorForStartPush?.expoPushToken,
+    });
+    await notifyEligibleCustomers(exp, {
+      type: 'SHIPMENT_STATUS_CHANGED',
+      title: 'Your delivery is on the way',
+      message: `${exp.itemName} is now in transit.`,
+    });
 
     res.json(updated);
   } catch (err) {
@@ -149,15 +182,30 @@ router.put('/export/accept/:id', async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
     }
 
-    if (exp.driverResponse === 'accepted') {
-      return res.status(400).json({ error: 'Export already accepted' });
+    try {
+      assertTransition(exp.status, STATUSES.ACCEPTED);
+    } catch (transitionError) {
+      return res.status(400).json({ error: transitionError.message });
     }
 
     const updated = await Export.findByIdAndUpdate(
       req.params.id,
-      { driverResponse: 'accepted' },
+      { status: STATUSES.ACCEPTED },
       { new: true }
     ).populate('vendorId', 'name mobileNo');
+
+    await logShipmentEvent(exp._id, 'DRIVER_ACCEPTED', req.user.id, 'Driver');
+    const vendorForPush = await Vendor.findById(exp.vendorId).select('expoPushToken');
+    await createNotification({
+      recipientId: exp.vendorId,
+      recipientModel: 'Vendor',
+      type: 'JOB_ACCEPTED',
+      title: 'Shipment accepted',
+      message: `Your driver accepted the shipment for ${exp.itemName}.`,
+      relatedEntityType: 'Shipment',
+      relatedEntityId: exp._id,
+      recipientPushToken: vendorForPush?.expoPushToken,
+    });
 
     res.json({ success: true, message: 'Export accepted', export: updated });
   } catch (err) {
@@ -171,25 +219,47 @@ router.put('/export/reject/:id', async (req, res) => {
   try {
     const { reason } = req.body;
 
+    // A reason is mandatory (Stage 5 §3), not merely encouraged — a driver
+    // must explain why a job is being unassigned so the vendor can act on
+    // it (reassign, investigate a recurring issue, etc).
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'A rejection reason is required.' });
+    }
+
     const exp = await Export.findById(req.params.id);
     if (!exp) return res.status(404).json({ error: 'Export not found' });
     if (!exp.driver || exp.driver.toString() !== req.user.id) {
       return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
     }
 
-    if (exp.driverResponse === 'rejected') {
-      return res.status(400).json({ error: 'Export already rejected' });
+    try {
+      assertTransition(exp.status, STATUSES.REJECTED);
+    } catch (transitionError) {
+      return res.status(400).json({ error: transitionError.message });
     }
+
+    const rejectingDriverId = req.user.id;
 
     const updated = await Export.findByIdAndUpdate(
       req.params.id,
       {
-        driverResponse: 'rejected',
-        rejectionReason: reason || 'No reason provided',
+        status: STATUSES.REJECTED,
+        rejectionReason: reason.trim(),
         driver: null  // Unassign driver so vendor can reassign
       },
       { new: true }
     );
+
+    await logShipmentEvent(exp._id, 'DRIVER_REJECTED', rejectingDriverId, 'Driver', { reason: reason.trim() });
+    await createNotification({
+      recipientId: exp.vendorId,
+      recipientModel: 'Vendor',
+      type: 'JOB_REJECTED',
+      title: 'Shipment rejected',
+      message: `Your driver rejected the shipment for ${exp.itemName}.`,
+      relatedEntityType: 'Shipment',
+      relatedEntityId: exp._id,
+    });
 
     res.json({ success: true, message: 'Export rejected', export: updated });
   } catch (err) {
@@ -207,19 +277,35 @@ router.put('/export/complete/:id', async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
     }
 
-    if (exp.status === 'Completed') {
-      return res.status(400).json({ error: 'Export already completed' });
-    }
-
-    if (exp.status !== 'Started') {
-      return res.status(400).json({ error: 'Export must be started before completing' });
+    try {
+      assertTransition(exp.status, STATUSES.COMPLETED);
+    } catch (transitionError) {
+      return res.status(400).json({ error: transitionError.message });
     }
 
     const updated = await Export.findByIdAndUpdate(
       req.params.id,
-      { status: 'Completed' },
+      { status: STATUSES.COMPLETED },
       { new: true }
     ).populate('vendorId', 'name mobileNo');
+
+    await logShipmentEvent(exp._id, 'DELIVERY_COMPLETED', req.user.id, 'Driver');
+    const vendorForCompletePush = await Vendor.findById(exp.vendorId).select('expoPushToken');
+    await createNotification({
+      recipientId: exp.vendorId,
+      recipientModel: 'Vendor',
+      type: 'SHIPMENT_STATUS_CHANGED',
+      title: 'Delivery completed',
+      message: `Your driver completed the delivery for ${exp.itemName}.`,
+      relatedEntityType: 'Shipment',
+      relatedEntityId: exp._id,
+      recipientPushToken: vendorForCompletePush?.expoPushToken,
+    });
+    await notifyEligibleCustomers(exp, {
+      type: 'SHIPMENT_STATUS_CHANGED',
+      title: 'Delivery completed',
+      message: `${exp.itemName} has been delivered.`,
+    });
 
     res.json({ success: true, message: 'Export completed', export: updated });
   } catch (err) {

@@ -86,7 +86,7 @@ const DriverHomePlaceholder = () => {
       if (!driverId) return;
 
       const res = await api.get(`/api/driver/export/driver/${driverId}`);
-      const started = res.data.find((exp) => exp.status === 'Started');
+      const started = res.data.find((exp) => exp.status === 'IN_TRANSIT');
       setOngoingExport(started || null);
     } catch (err) {
       console.error('Error fetching ongoing export:', err);

@@ -3,6 +3,7 @@
  * Send push notifications via Expo Push API
  */
 const axios = require('axios');
+const Notification = require('../models/notificationModel');
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -122,9 +123,60 @@ async function sendChatNotification(userToken, senderName, message, chatData) {
     );
 }
 
+/**
+ * Persist a Notification document and, if the recipient has a push token,
+ * fire the existing Expo push alongside it. Push failure never blocks the
+ * DB write (same "don't break the primary action" rule the chat send route
+ * already follows) and a DB failure is logged, not thrown — a notification
+ * is always secondary to the action that triggered it.
+ *
+ * @param {object} params
+ * @param {string} params.recipientId
+ * @param {'Vendor'|'Driver'|'Customer'} params.recipientModel
+ * @param {string} params.type - one of Notification.type's enum values
+ * @param {string} params.title
+ * @param {string} params.message
+ * @param {string|null} [params.relatedEntityType]
+ * @param {string|null} [params.relatedEntityId]
+ * @param {string|null} [params.recipientPushToken]
+ */
+async function createNotification({
+    recipientId,
+    recipientModel,
+    type,
+    title,
+    message,
+    relatedEntityType = null,
+    relatedEntityId = null,
+    recipientPushToken = null,
+}) {
+    try {
+        await Notification.create({
+            recipient: recipientId,
+            recipientModel,
+            type,
+            title,
+            message,
+            relatedEntityType,
+            relatedEntityId,
+        });
+    } catch (err) {
+        console.error('Failed to persist notification:', err.message);
+    }
+
+    if (recipientPushToken) {
+        await sendPushNotification(recipientPushToken, title, message, {
+            type,
+            relatedEntityType,
+            relatedEntityId,
+        });
+    }
+}
+
 module.exports = {
     sendPushNotification,
     sendBulkPushNotifications,
     sendOrderUpdateNotification,
     sendChatNotification,
+    createNotification,
 };

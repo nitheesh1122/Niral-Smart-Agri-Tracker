@@ -27,7 +27,7 @@ const DriverDeliveryHistory = () => {
       if (!driverId) return;
 
       const res = await api.get(`/api/driver/export/driver/${driverId}`);
-      const completed = (res.data || []).filter(e => e.status === 'Completed');
+      const completed = (res.data || []).filter(e => e.status === 'COMPLETED');
       setDeliveries(completed);
     } catch (err) {
       console.error('Error fetching delivery history:', err);

@@ -198,8 +198,8 @@ const VendorHomePlaceHolder = () => {
       // Calculate stats
       setStats({
         total: exportData.length,
-        active: exportData.filter((e) => e.status === 'Started').length,
-        completed: exportData.filter((e) => e.status === 'Completed').length,
+        active: exportData.filter((e) => e.status === 'IN_TRANSIT').length,
+        completed: exportData.filter((e) => e.status === 'COMPLETED').length,
         revenue: exportData.reduce((sum, e) => sum + (e.salePrice || 0), 0),
       });
     } catch (error) {

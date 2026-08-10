@@ -8,6 +8,10 @@ const durationSchema = new mongoose.Schema({
 
 const workSchema = new mongoose.Schema({
   vendorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', required: true },
+  // Ties this embedded record back to the Shipment that created it, so it
+  // can be removed precisely when that shipment is deleted. Optional/null
+  // on records created before this field existed (Stage 4 and earlier).
+  exportId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shipment', default: null },
   workDuration: { type: [durationSchema], required: true },
   salary: { type: Number, required: true },
   isPaid: { type: Boolean, default: false }
@@ -35,6 +39,11 @@ const driverSchema = new mongoose.Schema({
     default: []
   },
 
+  // Whether the driver can currently be assigned new shipments. Informational
+  // only in Stage 4 — no route enforces it yet (availableResources already
+  // computes busy-ness from overlapping shipment dates).
+  isAvailable: { type: Boolean, default: true },
+
   // Push notification token
   expoPushToken: { type: String, default: null }
 
@@ -44,8 +53,8 @@ const driverSchema = new mongoose.Schema({
 });
 
 // Database indexes for faster queries
-driverSchema.index({ username: 1 });
-driverSchema.index({ email: 1 });
+// No separate .index({username:1}) / .index({email:1}) — `unique: true`
+// on those fields above already creates that index.
 
 // Hash password before saving
 driverSchema.pre('save', async function (next) {

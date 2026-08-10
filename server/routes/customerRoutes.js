@@ -5,7 +5,21 @@ const express = require('express');
 const router = express.Router();
 const Customer = require('../models/customerModel');
 const Vendor = require('../models/vendorModel');
-const Export = require('../models/ExportModel');
+const Vehicle = require('../models/VehicleModel');
+const Device = require('../models/deviceModel');
+const Export = require('../models/shipmentModel');
+const ShipmentEvent = require('../models/shipmentEventModel');
+const { STATUSES } = require('../utils/shipmentStateMachine');
+
+// Event types a customer is allowed to see on a shipment timeline — no
+// driver-rejection reasons, no vendor-only reassignment metadata.
+const CUSTOMER_VISIBLE_EVENT_TYPES = [
+  'SHIPMENT_CREATED',
+  'DRIVER_ASSIGNED',
+  'DRIVER_ACCEPTED',
+  'DELIVERY_STARTED',
+  'DELIVERY_COMPLETED',
+];
 
 /**
  * GET /api/customer/profile/:customerId
@@ -72,7 +86,7 @@ router.get('/exports/available', async (req, res) => {
     try {
         const { state, district } = req.query;
 
-        let query = { status: 'Started' };
+        let query = { status: STATUSES.IN_TRANSIT };
 
         // Filter by location if provided
         if (state || district) {
@@ -86,10 +100,48 @@ router.get('/exports/available', async (req, res) => {
             .sort({ startDate: -1 })
             .limit(50);
 
-        res.json(exports);
+        // Pricing/salary/instructions are vendor-operational, not
+        // customer-facing (Stage 5 §7) — strip them from every shipment in
+        // this browse list, not just the single-shipment track endpoint.
+        res.json(exports.map((exp) => exp.toCustomerView()));
     } catch (err) {
         console.error('Error fetching available exports:', err);
         res.status(500).json({ error: 'Failed to fetch exports' });
+    }
+});
+
+/**
+ * GET /api/customer/my-shipments
+ * Shipments this customer is associated with: named as the shipment's
+ * primary customer, and/or granted tracking access. Unlike
+ * /exports/available (a public browse-all list), this reflects "shipments
+ * that are mine" regardless of status, and flags whether tracking is
+ * currently allowed for each one so the UI doesn't have to guess before
+ * the customer taps in.
+ */
+router.get('/my-shipments', async (req, res) => {
+    try {
+        const customerId = req.user.id;
+        const exports = await Export.find({
+            $or: [
+                { customer: customerId },
+                { 'trackingViewers.customer': customerId },
+            ],
+        })
+            .populate('vendorId', 'name mobileNo')
+            .populate('driver', 'name mobileNo')
+            .populate('vehicle', 'vehicleNumber brand')
+            .sort({ createdAt: -1 });
+
+        const result = exports.map((exp) => ({
+            ...exp.toCustomerView(),
+            trackingAllowed: exp.canCustomerTrack(customerId),
+        }));
+
+        res.json(result);
+    } catch (err) {
+        console.error('Error fetching customer shipments:', err);
+        res.status(500).json({ error: 'Failed to fetch shipments' });
     }
 });
 
@@ -102,14 +154,28 @@ router.get('/track/:exportId', async (req, res) => {
         const exportData = await Export.findById(req.params.exportId)
             .populate('vendorId', 'name mobileNo')
             .populate('driver', 'name mobileNo')
-            .populate('vehicle', 'vehicleNumber brand deviceId');
+            .populate('vehicle', 'vehicleNumber brand');
 
         if (!exportData) {
             return res.status(404).json({ error: 'Export not found' });
         }
 
+        // Explicit-grant tracking permission (Stage 5 §6 — overrides Stage
+        // 4's temporary default-open behavior). See
+        // shipmentModel.canCustomerTrack for the exact policy. Enforced
+        // here regardless of how the client obtained this shipment's ID,
+        // so a client that already has a cached copy of the document
+        // (e.g. from /exports/available) cannot bypass the check by simply
+        // not calling this endpoint — every screen that shows live
+        // tracking is required to hit this route first.
+        if (!exportData.canCustomerTrack(req.user.id)) {
+            return res.status(403).json({ error: 'Access denied. You are not authorized to track this shipment.' });
+        }
+
+        const customerView = exportData.toCustomerView();
+
         res.json({
-            export: exportData,
+            export: customerView,
             startLocation: exportData.startLocation,
             endLocation: exportData.endLocation,
             intermediateLocations: exportData.intermediateLocations,
@@ -119,6 +185,70 @@ router.get('/track/:exportId', async (req, res) => {
     } catch (err) {
         console.error('Error fetching tracking info:', err);
         res.status(500).json({ error: 'Failed to fetch tracking info' });
+    }
+});
+
+/**
+ * GET /api/customer/track/:exportId/events
+ * Customer-facing shipment timeline — same permission check as /track,
+ * filtered to event types relevant to a customer (no rejection reasons,
+ * no vendor-only reassignment metadata).
+ */
+router.get('/track/:exportId/events', async (req, res) => {
+    try {
+        const exportData = await Export.findById(req.params.exportId);
+        if (!exportData) {
+            return res.status(404).json({ error: 'Export not found' });
+        }
+        if (!exportData.canCustomerTrack(req.user.id)) {
+            return res.status(403).json({ error: 'Access denied. You are not authorized to track this shipment.' });
+        }
+
+        const events = await ShipmentEvent.find({
+            shipment: exportData._id,
+            eventType: { $in: CUSTOMER_VISIBLE_EVENT_TYPES },
+        })
+            .select('eventType timestamp')
+            .sort({ timestamp: 1 });
+
+        res.json(events);
+    } catch (err) {
+        console.error('Error fetching shipment events:', err);
+        res.status(500).json({ error: 'Failed to fetch shipment events' });
+    }
+});
+
+/**
+ * GET /api/customer/track/:exportId/location
+ * Live vehicle location for a shipment the customer is permitted to track.
+ * Reuses the same Shipment -> Vehicle -> Device resolution the vendor/
+ * driver location endpoints already use (Stage 2/3 IoT read-side) — this
+ * does not add a second location source, just a permission-checked read
+ * of the same one. Returns null (not fabricated coordinates) when no
+ * device is linked or it has never reported a location.
+ */
+router.get('/track/:exportId/location', async (req, res) => {
+    try {
+        const exportData = await Export.findById(req.params.exportId);
+        if (!exportData) {
+            return res.status(404).json({ error: 'Export not found' });
+        }
+        if (!exportData.canCustomerTrack(req.user.id)) {
+            return res.status(403).json({ error: 'Access denied. You are not authorized to track this shipment.' });
+        }
+
+        const vehicle = await Vehicle.findById(exportData.vehicle);
+        if (!vehicle || !vehicle.deviceId) {
+            return res.json({ location: null });
+        }
+        const device = await Device.findOne({ deviceName: vehicle.deviceId });
+        const locations = device?.deviceLocation || [];
+        const latest = locations.length > 0 ? locations[locations.length - 1] : null;
+
+        res.json({ location: latest });
+    } catch (err) {
+        console.error('Error fetching customer-facing location:', err);
+        res.status(500).json({ error: 'Failed to fetch location' });
     }
 });
 
@@ -138,7 +268,7 @@ router.get('/dashboard/:customerId', async (req, res) => {
 
         // Get active exports in customer's area
         const activeExports = await Export.find({
-            status: 'Started',
+            status: STATUSES.IN_TRANSIT,
             routes: { $in: [customer.district, customer.state] }
         })
             .populate('vendorId', 'name')
@@ -150,7 +280,7 @@ router.get('/dashboard/:customerId', async (req, res) => {
         const vendorCount = await Vendor.countDocuments({});
 
         // Get active deliveries count
-        const activeCount = await Export.countDocuments({ status: 'Started' });
+        const activeCount = await Export.countDocuments({ status: STATUSES.IN_TRANSIT });
 
         res.json({
             customer: {
@@ -163,7 +293,7 @@ router.get('/dashboard/:customerId', async (req, res) => {
                 activeDeliveries: activeCount,
                 nearbyDeliveries: activeExports.length,
             },
-            nearbyExports: activeExports,
+            nearbyExports: activeExports.map((exp) => exp.toCustomerView()),
         });
     } catch (err) {
         console.error('Error fetching dashboard:', err);

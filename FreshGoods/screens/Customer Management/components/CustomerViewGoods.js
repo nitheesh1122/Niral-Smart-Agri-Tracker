@@ -229,7 +229,7 @@ const CustomerViewGoods = ({ onTrack }) => {
   const getFilterCounts = () => {
     return {
       all: exports.length,
-      started: exports.filter((e) => e.status?.toLowerCase() === 'started').length,
+      started: exports.filter((e) => e.status?.toLowerCase() === 'in_transit').length,
       assigned: exports.filter((e) => e.status?.toLowerCase() === 'assigned').length,
       completed: exports.filter((e) => e.status?.toLowerCase() === 'completed').length,
     };
@@ -277,7 +277,7 @@ const CustomerViewGoods = ({ onTrack }) => {
           showsHorizontalScrollIndicator={false}
           data={[
             { key: 'all', label: 'All', count: filterCounts.all },
-            { key: 'started', label: 'In Transit', count: filterCounts.started },
+            { key: 'in_transit', label: 'In Transit', count: filterCounts.started },
             { key: 'assigned', label: 'Assigned', count: filterCounts.assigned },
             { key: 'completed', label: 'Completed', count: filterCounts.completed },
           ]}

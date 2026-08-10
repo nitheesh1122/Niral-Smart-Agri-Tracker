@@ -85,7 +85,7 @@ const VendorAnalytics = ({ onBack }) => {
             const exports = res.data || [];
 
             // Calculate stats
-            const completed = exports.filter((e) => e.status === 'Completed');
+            const completed = exports.filter((e) => e.status === 'COMPLETED');
             const revenue = exports.reduce((sum, e) => sum + (e.salePrice || 0), 0);
             const completionRate = exports.length > 0
                 ? Math.round((completed.length / exports.length) * 100)
@@ -101,10 +101,12 @@ const VendorAnalytics = ({ onBack }) => {
 
             // Generate chart data
             const statusCounts = {
-                Pending: exports.filter((e) => e.status === 'Pending').length,
-                Assigned: exports.filter((e) => e.status === 'Assigned').length,
-                Started: exports.filter((e) => e.status === 'Started').length,
-                Completed: exports.filter((e) => e.status === 'Completed').length,
+                // "Pending" here means "assigned or accepted, not yet in transit" —
+                // the two intermediate states between ASSIGNED and IN_TRANSIT.
+                Pending: exports.filter((e) => e.status === 'ASSIGNED' || e.status === 'ACCEPTED').length,
+                Assigned: exports.filter((e) => e.status === 'ASSIGNED').length,
+                Started: exports.filter((e) => e.status === 'IN_TRANSIT').length,
+                Completed: exports.filter((e) => e.status === 'COMPLETED').length,
             };
 
             setChartData({

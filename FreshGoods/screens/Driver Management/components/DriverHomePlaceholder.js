@@ -1,18 +1,21 @@
 /**
  * DriverHomePlaceholder.js
- * Premium driver dashboard with ongoing export and quick actions
+ * Driver operational dashboard — Assigned Jobs, a prominent Current
+ * Delivery card, and recent Completed work. Every field comes from
+ * GET /api/driver/export/driver/:driverId; nothing is invented.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   TouchableOpacity,
   Alert,
   ScrollView,
   RefreshControl,
+  ActivityIndicator,
+  Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -24,6 +27,8 @@ import {
   borderRadius,
   typography,
   shadows,
+  getStatusColor,
+  getStatusBgColor,
 } from '../../theme';
 import ThemedCard from '../../components/ThemedCard';
 import ThemedButton from '../../components/ThemedButton';
@@ -31,83 +36,122 @@ import {
   SlideInView,
   FadeInView,
   PulseView,
-  AnimatedProgressBar,
 } from '../../components/AnimatedComponents';
-
+import { getFreshness, formatMinutesAgo, FRESHNESS } from '../../utils/freshness';
 import DriverExportHealth from './placeholdersubcomponents/DriverExportHealth';
 import DriverRouteMap from './placeholdersubcomponents/DriverRouteMap';
+import DriverJobDetailsModal from './DriverJobDetailsModal';
 
 // ═══════════════════════════════════════════════════════════════════
-// INFO CHIP COMPONENT
+// ASSIGNED JOB CARD (ASSIGNED / ACCEPTED)
 // ═══════════════════════════════════════════════════════════════════
-const InfoChip = ({ icon, label, value }) => (
-  <View style={styles.infoChip}>
-    <Text style={styles.infoChipIcon}>{icon}</Text>
-    <View>
-      <Text style={styles.infoChipLabel}>{label}</Text>
-      <Text style={styles.infoChipValue}>{value}</Text>
-    </View>
-  </View>
-);
-
-// ═══════════════════════════════════════════════════════════════════
-// QUICK ACTION BUTTON
-// ═══════════════════════════════════════════════════════════════════
-const QuickAction = ({ icon, label, color, onPress, disabled }) => (
-  <TouchableOpacity
-    style={[styles.quickAction, disabled && styles.quickActionDisabled]}
-    onPress={onPress}
-    disabled={disabled}
-    activeOpacity={0.7}
-  >
-    <View style={[styles.quickActionIcon, { backgroundColor: color + '15' }]}>
-      <Text style={styles.quickActionEmoji}>{icon}</Text>
-    </View>
-    <Text style={styles.quickActionLabel}>{label}</Text>
-  </TouchableOpacity>
-);
+const JobCard = ({ item, onPress }) => {
+  const statusColor = getStatusColor(item.status);
+  const statusBg = getStatusBgColor(item.status);
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+      <ThemedCard variant="elevated" style={styles.jobCard}>
+        <View style={styles.jobCardHeader}>
+          <Text style={styles.jobCardTitle} numberOfLines={1}>📦 {item.itemName}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+            <Text style={[styles.statusText, { color: statusColor }]}>{item.status}</Text>
+          </View>
+        </View>
+        <Text style={styles.jobCardLine} numberOfLines={1}>
+          {item.quantity} {item.unit || ''} · {item.vendorId?.name || 'Vendor'}
+        </Text>
+        <Text style={styles.jobCardLine} numberOfLines={1}>
+          To: {item.endLocation ? `${item.endLocation.latitude.toFixed(3)}, ${item.endLocation.longitude.toFixed(3)}` : 'N/A'}
+        </Text>
+        <Text style={styles.jobCardLine} numberOfLines={1}>
+          Expected drop: {item.expectedDropTime ? new Date(item.expectedDropTime).toLocaleString() : 'Not set'}
+        </Text>
+      </ThemedCard>
+    </TouchableOpacity>
+  );
+};
 
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-const DriverHomePlaceholder = () => {
+const DriverHomePlaceholder = ({ onViewAllJobs, onChatWithVendor }) => {
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [endingTrip, setEndingTrip] = useState(false);
-  const [ongoingExport, setOngoingExport] = useState(null);
   const [driverName, setDriverName] = useState('Driver');
+  const [allJobs, setAllJobs] = useState([]);
   const [screen, setScreen] = useState('home'); // 'home' | 'health' | 'route'
+  const [detailsItem, setDetailsItem] = useState(null);
+  const [endingTrip, setEndingTrip] = useState(false);
+  const [startedAt, setStartedAt] = useState(null);
+  const [locationStatus, setLocationStatus] = useState(undefined); // undefined = loading
 
-  const fetchStartedExport = async () => {
+  const currentDelivery = allJobs.find((j) => j.status === 'IN_TRANSIT') || null;
+  const assignedJobs = allJobs.filter((j) => j.status === 'ASSIGNED' || j.status === 'ACCEPTED');
+  const recentCompleted = allJobs
+    .filter((j) => j.status === 'COMPLETED')
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+    .slice(0, 5);
+
+  const fetchJobs = useCallback(async () => {
     try {
+      setError(null);
       const driverId = await AsyncStorage.getItem('userId');
       const name = await AsyncStorage.getItem('userName');
       if (name) setDriverName(name);
       if (!driverId) return;
 
       const res = await api.get(`/api/driver/export/driver/${driverId}`);
-      const started = res.data.find((exp) => exp.status === 'IN_TRANSIT');
-      setOngoingExport(started || null);
+      setAllJobs(res.data || []);
     } catch (err) {
-      console.error('Error fetching ongoing export:', err);
+      console.error('Error fetching driver jobs:', err);
+      setError('Unable to load your dashboard. Try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchStartedExport();
-  }, []);
+    fetchJobs();
+  }, [fetchJobs]);
+
+  // Once we know which shipment is IN_TRANSIT, fetch its real start time
+  // (from the backend event log, not a guess) and current location status.
+  useEffect(() => {
+    if (!currentDelivery) {
+      setStartedAt(null);
+      setLocationStatus(undefined);
+      return;
+    }
+    (async () => {
+      try {
+        const res = await api.get(`/api/driver/export/${currentDelivery._id}/events`);
+        const startEvent = (res.data || []).find((e) => e.eventType === 'DELIVERY_STARTED');
+        setStartedAt(startEvent?.timestamp || null);
+      } catch (err) {
+        setStartedAt(null);
+      }
+    })();
+    (async () => {
+      try {
+        const res = await api.get(`/api/driver/device/location-data/${currentDelivery._id}`);
+        const locations = res.data || [];
+        setLocationStatus(locations.length > 0 ? locations[locations.length - 1] : null);
+      } catch (err) {
+        setLocationStatus(null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentDelivery?._id]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchStartedExport();
+    fetchJobs();
   };
 
-  const handleEndTrip = async () => {
-    if (!ongoingExport) return;
-
+  const handleCompleteCurrent = () => {
+    if (!currentDelivery) return;
     Alert.alert(
       '🏁 Complete Delivery',
       'Are you sure you want to mark this delivery as completed?',
@@ -115,16 +159,14 @@ const DriverHomePlaceholder = () => {
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Complete',
-          style: 'default',
           onPress: async () => {
             setEndingTrip(true);
             try {
-              await api.put(`/api/driver/export/complete/${ongoingExport._id}`);
-              Alert.alert('Success! 🎉', 'Delivery completed successfully!');
-              setOngoingExport(null);
+              await api.put(`/api/driver/export/complete/${currentDelivery._id}`);
+              Alert.alert('Success', 'Delivery completed.');
+              fetchJobs();
             } catch (err) {
-              console.error('Failed to end trip:', err);
-              Alert.alert('Error', 'Failed to complete delivery');
+              Alert.alert('Error', err.response?.data?.error || 'Failed to complete delivery.');
             } finally {
               setEndingTrip(false);
             }
@@ -134,6 +176,12 @@ const DriverHomePlaceholder = () => {
     );
   };
 
+  const handleCallVendor = () => {
+    if (currentDelivery?.vendorId?.mobileNo) {
+      Linking.openURL(`tel:${currentDelivery.vendorId.mobileNo}`);
+    }
+  };
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good Morning';
@@ -141,36 +189,14 @@ const DriverHomePlaceholder = () => {
     return 'Good Evening';
   };
 
-  const getProgress = () => {
-    // Simulate progress based on dates
-    if (!ongoingExport) return 0;
-    const start = new Date(ongoingExport.startDate).getTime();
-    const end = new Date(ongoingExport.endDate).getTime();
-    const now = Date.now();
-    const progress = ((now - start) / (end - start)) * 100;
-    return Math.min(Math.max(progress, 10), 90);
-  };
-
-  // Sub-screens
-  if (screen === 'health' && ongoingExport) {
-    return (
-      <DriverExportHealth
-        exportId={ongoingExport._id}
-        onBack={() => setScreen('home')}
-      />
-    );
+  // Sub-screens (reuse the existing, working IoT + map components)
+  if (screen === 'health' && currentDelivery) {
+    return <DriverExportHealth exportId={currentDelivery._id} onBack={() => setScreen('home')} />;
+  }
+  if (screen === 'route' && currentDelivery) {
+    return <DriverRouteMap exportId={currentDelivery._id} onBack={() => setScreen('home')} />;
   }
 
-  if (screen === 'route' && ongoingExport) {
-    return (
-      <DriverRouteMap
-        exportId={ongoingExport._id}
-        onBack={() => setScreen('home')}
-      />
-    );
-  }
-
-  // Loading state
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -184,173 +210,174 @@ const DriverHomePlaceholder = () => {
     );
   }
 
-  // No ongoing export
-  if (!ongoingExport) {
+  if (error) {
     return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorIcon}>⚠️</Text>
+        <Text style={styles.loadingText}>{error}</Text>
+        <ThemedButton title="Retry" variant="primary" onPress={fetchJobs} style={{ marginTop: spacing.lg }} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
       <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.emptyContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={[colors.primary]}
-          />
-        }
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
       >
         <FadeInView>
-          <LinearGradient
-            colors={gradients.forest}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.welcomeCard}
-          >
+          <LinearGradient colors={gradients.forest} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.welcomeCard}>
             <Text style={styles.greeting}>{getGreeting()}</Text>
             <Text style={styles.welcomeName}>{driverName} 👋</Text>
           </LinearGradient>
         </FadeInView>
 
-        <SlideInView delay={100}>
-          <ThemedCard variant="elevated" style={styles.noTripCard}>
-            <Text style={styles.noTripIcon}>📭</Text>
-            <Text style={styles.noTripTitle}>No Active Trips</Text>
-            <Text style={styles.noTripSubtext}>
-              You don't have any ongoing deliveries. Check your assigned exports
-              or refresh to see new assignments.
-            </Text>
-            <ThemedButton
-              title="Refresh"
-              variant="gradient"
-              icon="🔄"
-              onPress={onRefresh}
-              loading={refreshing}
-              style={{ marginTop: spacing.lg }}
-            />
-          </ThemedCard>
-        </SlideInView>
-      </ScrollView>
-    );
-  }
+        {/* CURRENT DELIVERY — the one thing that matters most right now */}
+        {currentDelivery ? (
+          <SlideInView delay={80}>
+            <ThemedCard variant="elevated" style={styles.currentCard}>
+              <Text style={styles.currentLabel}>ACTIVE DELIVERY</Text>
+              <Text style={styles.currentTitle}>{currentDelivery.itemName}</Text>
+              <Text style={styles.currentSubtitle}>{currentDelivery.quantity} {currentDelivery.unit || ''}</Text>
 
-  // Ongoing export dashboard
-  return (
-    <ScrollView
-      style={styles.container}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          colors={[colors.primary]}
-        />
-      }
-    >
-      {/* Header */}
-      <FadeInView>
-        <LinearGradient
-          colors={gradients.forest}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.header}
-        >
-          <Text style={styles.headerLabel}>CURRENT TRIP</Text>
-          <Text style={styles.headerTitle}>{ongoingExport.itemName}</Text>
+              <View style={styles.currentInfoRow}>
+                <Text style={styles.currentInfoLabel}>To</Text>
+                <Text style={styles.currentInfoValue} numberOfLines={1}>
+                  {currentDelivery.endLocation
+                    ? `${currentDelivery.endLocation.latitude.toFixed(4)}, ${currentDelivery.endLocation.longitude.toFixed(4)}`
+                    : 'N/A'}
+                </Text>
+              </View>
+              <View style={styles.currentInfoRow}>
+                <Text style={styles.currentInfoLabel}>Vehicle</Text>
+                <Text style={styles.currentInfoValue}>{currentDelivery.vehicle?.vehicleNumber || 'N/A'}</Text>
+              </View>
+              {currentDelivery.customer?.name && (
+                <View style={styles.currentInfoRow}>
+                  <Text style={styles.currentInfoLabel}>Customer</Text>
+                  <Text style={styles.currentInfoValue}>{currentDelivery.customer.name}</Text>
+                </View>
+              )}
+              <View style={styles.currentInfoRow}>
+                <Text style={styles.currentInfoLabel}>Status</Text>
+                <Text style={[styles.currentInfoValue, { color: colors.success, fontWeight: '700' }]}>IN TRANSIT</Text>
+              </View>
+              <View style={styles.currentInfoRow}>
+                <Text style={styles.currentInfoLabel}>Started</Text>
+                <Text style={styles.currentInfoValue}>{startedAt ? new Date(startedAt).toLocaleString() : 'Unknown'}</Text>
+              </View>
+              <View style={styles.currentInfoRow}>
+                <Text style={styles.currentInfoLabel}>Expected Drop</Text>
+                <Text style={styles.currentInfoValue}>
+                  {currentDelivery.expectedDropTime ? new Date(currentDelivery.expectedDropTime).toLocaleString() : 'Not set'}
+                </Text>
+              </View>
+              <View style={styles.currentInfoRow}>
+                <Text style={styles.currentInfoLabel}>Location</Text>
+                {locationStatus === undefined ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : locationStatus === null ? (
+                  <Text style={[styles.currentInfoValue, { color: colors.text.muted, fontStyle: 'italic' }]}>Unavailable</Text>
+                ) : (() => {
+                  const freshness = getFreshness(locationStatus.timestamp);
+                  return (
+                    <Text style={[styles.currentInfoValue, { color: freshness.status === FRESHNESS.RECENT ? colors.success : colors.warning }]}>
+                      {freshness.status === FRESHNESS.RECENT ? 'Live' : 'Stale'} ({formatMinutesAgo(freshness.minutesAgo)})
+                    </Text>
+                  );
+                })()}
+              </View>
 
-          <View style={styles.progressSection}>
-            <View style={styles.progressHeader}>
-              <Text style={styles.progressLabel}>Delivery Progress</Text>
-              <Text style={styles.progressPercent}>
-                {Math.round(getProgress())}%
+              <View style={styles.currentActionsGrid}>
+                <ThemedButton title="View Location" variant="outline" size="small" icon="📍" onPress={() => setScreen('route')} style={styles.currentActionBtn} />
+                <ThemedButton title="View Details" variant="outline" size="small" icon="ℹ️" onPress={() => setDetailsItem(currentDelivery)} style={styles.currentActionBtn} />
+                {currentDelivery.vendorId?.mobileNo && (
+                  <ThemedButton title="Call Vendor" variant="outline" size="small" icon="📞" onPress={handleCallVendor} style={styles.currentActionBtn} />
+                )}
+              </View>
+              <ThemedButton
+                title={endingTrip ? 'Completing...' : '🏁 Complete Delivery'}
+                variant="danger"
+                fullWidth
+                onPress={handleCompleteCurrent}
+                loading={endingTrip}
+                style={{ marginTop: spacing.md }}
+              />
+            </ThemedCard>
+          </SlideInView>
+        ) : (
+          <SlideInView delay={80}>
+            <ThemedCard variant="outlined" style={styles.noTripCard}>
+              <Text style={styles.noTripIcon}>📭</Text>
+              <Text style={styles.noTripTitle}>No active deliveries.</Text>
+              <Text style={styles.noTripSubtext}>
+                {assignedJobs.length > 0
+                  ? `You have ${assignedJobs.length} job${assignedJobs.length === 1 ? '' : 's'} waiting below.`
+                  : "You'll see new assignments here as soon as a vendor assigns one."}
               </Text>
-            </View>
-            <AnimatedProgressBar
-              progress={getProgress()}
-              color="#fff"
-              backgroundColor="rgba(255,255,255,0.3)"
-              height={6}
-            />
-          </View>
-        </LinearGradient>
-      </FadeInView>
+            </ThemedCard>
+          </SlideInView>
+        )}
 
-      {/* Trip Info Card */}
-      <SlideInView delay={100}>
-        <ThemedCard variant="elevated" style={styles.tripCard}>
-          <View style={styles.tripInfoGrid}>
-            <InfoChip
-              icon="📅"
-              label="Start Date"
-              value={new Date(ongoingExport.startDate).toLocaleDateString()}
-            />
-            <InfoChip
-              icon="🏁"
-              label="End Date"
-              value={new Date(ongoingExport.endDate).toLocaleDateString()}
-            />
-            <InfoChip
-              icon="📊"
-              label="Quantity"
-              value={`${ongoingExport.quantity} units`}
-            />
-            <InfoChip
-              icon="📍"
-              label="Status"
-              value={ongoingExport.status}
-            />
+        {/* ASSIGNED JOBS — needs Accept/Reject/Start */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>📋 Assigned Jobs</Text>
+            {onViewAllJobs && (
+              <TouchableOpacity onPress={onViewAllJobs}>
+                <Text style={styles.viewAllLink}>View All</Text>
+              </TouchableOpacity>
+            )}
           </View>
-        </ThemedCard>
-      </SlideInView>
+          {assignedJobs.length === 0 ? (
+            <ThemedCard variant="outlined" style={styles.emptyCard}>
+              <Text style={styles.emptySubtext}>No jobs waiting on you right now.</Text>
+            </ThemedCard>
+          ) : (
+            assignedJobs.map((item, index) => (
+              <SlideInView key={item._id} delay={index * 60}>
+                <JobCard item={item} onPress={() => setDetailsItem(item)} />
+              </SlideInView>
+            ))
+          )}
+        </View>
 
-      {/* Quick Actions */}
-      <SlideInView delay={200}>
-        <ThemedCard variant="elevated" style={styles.actionsCard}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionsGrid}>
-            <QuickAction
-              icon="🍎"
-              label="Monitor Health"
-              color={colors.error}
-              onPress={() => setScreen('health')}
-            />
-            <QuickAction
-              icon="🗺️"
-              label="View Route"
-              color={colors.accent}
-              onPress={() => setScreen('route')}
-            />
-            <QuickAction
-              icon="📞"
-              label="Contact Vendor"
-              color={colors.tertiary}
-              onPress={() => Alert.alert('Contact', 'Calling vendor...')}
-            />
-            <QuickAction
-              icon="⚠️"
-              label="Report Issue"
-              color={colors.warning}
-              onPress={() => Alert.alert('Report', 'Issue reporting coming soon')}
-            />
-          </View>
-        </ThemedCard>
-      </SlideInView>
+        {/* COMPLETED / RECENT */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>✅ Recently Completed</Text>
+          {recentCompleted.length === 0 ? (
+            <ThemedCard variant="outlined" style={styles.emptyCard}>
+              <Text style={styles.emptySubtext}>No completed deliveries yet.</Text>
+            </ThemedCard>
+          ) : (
+            recentCompleted.map((item, index) => (
+              <SlideInView key={item._id} delay={index * 60}>
+                <TouchableOpacity onPress={() => setDetailsItem(item)} activeOpacity={0.8}>
+                  <ThemedCard variant="outlined" style={styles.completedCard}>
+                    <Text style={styles.completedItemName} numberOfLines={1}>{item.itemName}</Text>
+                    <Text style={styles.completedItemSub}>
+                      {item.quantity} {item.unit || ''} · Completed {new Date(item.updatedAt).toLocaleDateString()}
+                    </Text>
+                  </ThemedCard>
+                </TouchableOpacity>
+              </SlideInView>
+            ))
+          )}
+        </View>
 
-      {/* Complete Trip Button */}
-      <FadeInView delay={300} style={styles.endTripContainer}>
-        <ThemedButton
-          title={endingTrip ? 'Completing...' : '🏁 Complete Delivery'}
-          variant="danger"
-          size="large"
-          fullWidth
-          onPress={handleEndTrip}
-          loading={endingTrip}
+        <View style={styles.bottomPadding} />
+      </ScrollView>
+
+      {detailsItem && (
+        <DriverJobDetailsModal
+          item={detailsItem}
+          onClose={() => setDetailsItem(null)}
+          onChanged={fetchJobs}
+          onChatWithVendor={onChatWithVendor}
         />
-        <Text style={styles.endTripHint}>
-          Only mark as complete when delivery is finished
-        </Text>
-      </FadeInView>
-
-      <View style={styles.bottomPadding} />
-    </ScrollView>
+      )}
+    </View>
   );
 };
 
@@ -358,181 +385,50 @@ const DriverHomePlaceholder = () => {
 // STYLES
 // ═══════════════════════════════════════════════════════════════════
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.primary,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: colors.background.primary,
-  },
-  loadingIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: colors.primaryLight + '20',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  loadingEmoji: {
-    fontSize: 40,
-  },
-  loadingText: {
-    ...typography.body,
-    color: colors.text.muted,
-  },
-  emptyContainer: {
-    flexGrow: 1,
-    padding: spacing.md,
-  },
-  welcomeCard: {
-    padding: spacing.lg,
-    borderRadius: borderRadius.xl,
-    marginBottom: spacing.md,
-  },
-  greeting: {
-    ...typography.bodySmall,
-    color: 'rgba(255, 255, 255, 0.8)',
-  },
-  welcomeName: {
-    ...typography.h1,
-    color: colors.text.light,
-    marginTop: spacing.xs,
-  },
-  noTripCard: {
-    padding: spacing.xl,
-    alignItems: 'center',
-  },
-  noTripIcon: {
-    fontSize: 56,
-    marginBottom: spacing.md,
-  },
-  noTripTitle: {
-    ...typography.h3,
-    color: colors.text.primary,
-    marginBottom: spacing.sm,
-  },
-  noTripSubtext: {
-    ...typography.body,
-    color: colors.text.muted,
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-  header: {
-    padding: spacing.lg,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.xxl,
-  },
-  headerLabel: {
-    ...typography.overline,
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginBottom: spacing.xs,
-  },
-  headerTitle: {
-    ...typography.h1,
-    color: colors.text.light,
-    marginBottom: spacing.lg,
-  },
-  progressSection: {
-    marginTop: spacing.md,
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  progressLabel: {
-    ...typography.bodySmall,
-    color: 'rgba(255, 255, 255, 0.8)',
-  },
-  progressPercent: {
-    ...typography.bodySmallMedium,
-    color: colors.text.light,
-  },
-  tripCard: {
-    marginHorizontal: spacing.md,
-    marginTop: -spacing.xl,
-  },
-  tripInfoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  infoChip: {
-    width: '50%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-  },
-  infoChipIcon: {
-    fontSize: 20,
-    marginRight: spacing.sm,
-  },
-  infoChipLabel: {
-    ...typography.caption,
-    color: colors.text.muted,
-  },
-  infoChipValue: {
-    ...typography.bodyMedium,
-    color: colors.text.primary,
-  },
-  actionsCard: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.md,
-  },
-  sectionTitle: {
-    ...typography.h4,
-    color: colors.text.primary,
-    marginBottom: spacing.md,
-  },
-  actionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  quickAction: {
-    width: '48%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.background.secondary,
-    padding: spacing.md,
-    borderRadius: borderRadius.lg,
-    marginBottom: spacing.sm,
-  },
-  quickActionDisabled: {
-    opacity: 0.5,
-  },
-  quickActionIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: spacing.sm,
-  },
-  quickActionEmoji: {
-    fontSize: 20,
-  },
-  quickActionLabel: {
-    ...typography.bodySmallMedium,
-    color: colors.text.primary,
-    flex: 1,
-  },
-  endTripContainer: {
-    padding: spacing.md,
-    marginTop: spacing.md,
-  },
-  endTripHint: {
-    ...typography.caption,
-    color: colors.text.muted,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-  },
-  bottomPadding: {
-    height: spacing.xxl,
-  },
+  container: { flex: 1, backgroundColor: colors.background.primary },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background.primary, padding: spacing.xl },
+  loadingIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.primaryLight + '20', justifyContent: 'center', alignItems: 'center', marginBottom: spacing.md },
+  loadingEmoji: { fontSize: 40 },
+  errorIcon: { fontSize: 48, marginBottom: spacing.md },
+  loadingText: { ...typography.body, color: colors.text.muted, textAlign: 'center' },
+  welcomeCard: { padding: spacing.lg, margin: spacing.md, marginBottom: spacing.sm, borderRadius: borderRadius.xl },
+  greeting: { ...typography.bodySmall, color: 'rgba(255, 255, 255, 0.8)' },
+  welcomeName: { ...typography.h1, color: colors.text.light, marginTop: spacing.xs },
+
+  currentCard: { marginHorizontal: spacing.md, padding: spacing.lg, borderWidth: 2, borderColor: colors.success },
+  currentLabel: { ...typography.overline, color: colors.success, fontWeight: '700', letterSpacing: 1 },
+  currentTitle: { ...typography.h2, color: colors.text.primary, marginTop: spacing.xs },
+  currentSubtitle: { ...typography.body, color: colors.text.muted, marginBottom: spacing.md },
+  currentInfoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border.light },
+  currentInfoLabel: { ...typography.bodySmall, color: colors.text.muted },
+  currentInfoValue: { ...typography.bodySmallMedium, color: colors.text.primary, flex: 1, textAlign: 'right', marginLeft: spacing.md },
+  currentActionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
+  currentActionBtn: { flexGrow: 1, minWidth: '30%' },
+
+  noTripCard: { marginHorizontal: spacing.md, padding: spacing.xl, alignItems: 'center' },
+  noTripIcon: { fontSize: 48, marginBottom: spacing.sm },
+  noTripTitle: { ...typography.h4, color: colors.text.primary, marginBottom: spacing.xs },
+  noTripSubtext: { ...typography.body, color: colors.text.muted, textAlign: 'center' },
+
+  section: { paddingHorizontal: spacing.md, marginTop: spacing.lg },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
+  sectionTitle: { ...typography.h4, color: colors.text.primary },
+  viewAllLink: { ...typography.bodySmall, color: colors.primary, fontWeight: '600' },
+  emptyCard: { padding: spacing.lg, alignItems: 'center' },
+  emptySubtext: { ...typography.body, color: colors.text.muted, textAlign: 'center' },
+
+  jobCard: { marginBottom: spacing.sm, padding: spacing.md },
+  jobCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs },
+  jobCardTitle: { ...typography.bodyMedium, color: colors.text.primary, flex: 1, marginRight: spacing.sm },
+  statusBadge: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: borderRadius.round },
+  statusText: { ...typography.caption, fontWeight: '700' },
+  jobCardLine: { ...typography.bodySmall, color: colors.text.secondary, marginTop: 2 },
+
+  completedCard: { marginBottom: spacing.sm, padding: spacing.md },
+  completedItemName: { ...typography.bodyMedium, color: colors.text.primary },
+  completedItemSub: { ...typography.caption, color: colors.text.muted, marginTop: 2 },
+
+  bottomPadding: { height: spacing.xxl },
 });
 
 export default DriverHomePlaceholder;

@@ -18,6 +18,7 @@ import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import api from '../../../services/api';
 import { AnimatedCircularProgress } from 'react-native-circular-progress';
 import { colors, spacing, typography, borderRadius } from '../../../theme';
+import { getFreshness, formatMinutesAgo, FRESHNESS } from '../../../utils/freshness';
 
 const Gauge = ({ label, value, max, type }) => {
   const getColor = (val) => {
@@ -188,11 +189,24 @@ const MonitorHealthView = ({ selectedExport, onBack }) => {
           <View style={styles.statsContainer}>
             <Text style={styles.statsTitle}>📈 Readings for {formatDisplayDate(selectedDate)}</Text>
             <Text style={styles.statsText}>Total readings: {allData.length}</Text>
-            {data.timestamp && (
-              <Text style={styles.timestampLabel}>
-                🕒 Last reading: {new Date(data.timestamp).toLocaleTimeString()}
-              </Text>
-            )}
+            {data.timestamp && (() => {
+              const freshness = getFreshness(data.timestamp);
+              return (
+                <>
+                  <Text style={styles.timestampLabel}>
+                    🕒 Last reading: {new Date(data.timestamp).toLocaleTimeString()} ({formatMinutesAgo(freshness.minutesAgo)})
+                  </Text>
+                  <Text
+                    style={[
+                      styles.freshnessLabel,
+                      freshness.status === FRESHNESS.RECENT ? styles.freshnessRecent : styles.freshnessStale,
+                    ]}
+                  >
+                    {freshness.status === FRESHNESS.RECENT ? '● Recent' : '● Stale'}
+                  </Text>
+                </>
+              );
+            })()}
           </View>
         </>
       ) : (
@@ -332,6 +346,17 @@ const styles = StyleSheet.create({
     color: '#888',
     marginTop: 5,
     fontStyle: 'italic',
+  },
+  freshnessLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  freshnessRecent: {
+    color: '#2ecc71',
+  },
+  freshnessStale: {
+    color: '#e67e22',
   },
   emptyContainer: {
     alignItems: 'center',

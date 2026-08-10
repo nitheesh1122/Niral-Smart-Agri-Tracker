@@ -17,6 +17,7 @@ import {
 import { WebView } from 'react-native-webview';
 import axios from 'axios'; // used only for the external OpenRouteService call below
 import api from '../../../services/api';
+import { getFreshness, formatMinutesAgo, FRESHNESS } from '../../../utils/freshness';
 
 const ORS_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjRkZjk4MGNjNTZhZTAzYTE3ZGI0NDJiMjVkNzAzNGM5YTczOWIzODlhOTg5NGM1YzZhODYzZWQ0IiwiaCI6Im11cm11cjY0In0=';
 
@@ -206,6 +207,8 @@ const EnhancedExportLocationView = ({ selectedExport, onBack }) => {
   const [loading, setLoading] = useState(true);
   const [intermediateLocations, setIntermediateLocations] = useState([]);
   const [liveLocation, setLiveLocation] = useState(null);
+  const [liveLocationTimestamp, setLiveLocationTimestamp] = useState(null);
+  const [locationFetchAttempted, setLocationFetchAttempted] = useState(false);
   const [isTracking, setIsTracking] = useState(false);
   const [showMapModal, setShowMapModal] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -298,13 +301,22 @@ const EnhancedExportLocationView = ({ selectedExport, onBack }) => {
         `/api/vendor/device/location-data/${selectedExport._id}`
       );
       const locations = res.data;
+      setLocationFetchAttempted(true);
       if (locations?.length > 0) {
         const latest = locations[locations.length - 1];
         setLiveLocation({ latitude: latest.latitude, longitude: latest.longitude });
+        setLiveLocationTimestamp(latest.timestamp || null);
         setMapKey(k => k + 1);
+      } else {
+        // No reading exists at all — do not fabricate a location.
+        setLiveLocation(null);
+        setLiveLocationTimestamp(null);
       }
     } catch (err) {
       console.error('Location fetch error:', err);
+      setLocationFetchAttempted(true);
+      setLiveLocation(null);
+      setLiveLocationTimestamp(null);
     }
   };
 
@@ -338,6 +350,9 @@ const EnhancedExportLocationView = ({ selectedExport, onBack }) => {
   useEffect(() => {
     fetchIntermediateLocations();
     fetchRoute();
+    // One-shot check so freshness/unavailable state is visible immediately,
+    // without requiring the vendor to press "Start Tracking" first.
+    fetchLiveLocation();
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
 
@@ -384,9 +399,21 @@ const EnhancedExportLocationView = ({ selectedExport, onBack }) => {
           <Text style={styles.infoText}>📌 {intermediateLocations.length} waypoint(s)</Text>
         )}
         {loading && <Text style={styles.recalcText}>🔄 Recalculating route...</Text>}
+        {locationFetchAttempted && (() => {
+          const freshness = getFreshness(liveLocationTimestamp);
+          if (freshness.status === FRESHNESS.UNAVAILABLE) {
+            return <Text style={styles.locationUnavailableText}>📡 Location unavailable</Text>;
+          }
+          const color = freshness.status === FRESHNESS.RECENT ? '#28a745' : '#dc3545';
+          return (
+            <Text style={[styles.infoText, { color }]}>
+              📡 {freshness.status === FRESHNESS.RECENT ? 'Live' : 'Stale'} — last update {formatMinutesAgo(freshness.minutesAgo)}
+            </Text>
+          );
+        })()}
         {isTracking && liveLocation && (
           <Text style={styles.infoText}>
-            📡 {liveLocation.latitude.toFixed(4)}, {liveLocation.longitude.toFixed(4)}
+            {liveLocation.latitude.toFixed(4)}, {liveLocation.longitude.toFixed(4)}
           </Text>
         )}
       </View>
@@ -464,6 +491,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 16, fontWeight: 'bold', color: '#007AFF' },
   infoText: { fontSize: 13, color: '#444', marginTop: 2 },
+  locationUnavailableText: { fontSize: 13, color: '#999', marginTop: 2, fontStyle: 'italic' },
   recalcText: { fontSize: 12, color: '#007AFF', marginTop: 4, fontStyle: 'italic' },
   backButton: {
     position: 'absolute', top: 110, left: 15,

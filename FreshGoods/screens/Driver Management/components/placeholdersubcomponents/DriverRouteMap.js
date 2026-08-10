@@ -15,6 +15,7 @@ import {
 import { WebView } from 'react-native-webview';
 import axios from 'axios'; // used only for the external OpenRouteService calls below
 import api from '../../../services/api';
+import { getFreshness, formatMinutesAgo, FRESHNESS } from '../../../utils/freshness';
 
 const ORS_API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjRkZjk4MGNjNTZhZTAzYTE3ZGI0NDJiMjVkNzAzNGM5YTczOWIzODlhOTg5NGM1YzZhODYzZWQ0IiwiaCI6Im11cm11cjY0In0=';
 
@@ -138,6 +139,8 @@ const DriverRouteMap = ({ exportId, onBack }) => {
   const [end, setEnd] = useState(null);
   const [routeCoords, setRouteCoords] = useState([]);
   const [latestLocation, setLatestLocation] = useState(null);
+  const [latestLocationTimestamp, setLatestLocationTimestamp] = useState(null);
+  const [locationChecked, setLocationChecked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [liveTracking, setLiveTracking] = useState(false);
   const [pathHistory, setPathHistory] = useState([]);
@@ -210,34 +213,42 @@ const DriverRouteMap = ({ exportId, onBack }) => {
     }
   }, [exportId, fetchRoute]);
 
+  const fetchLiveLocation = useCallback(async () => {
+    try {
+      const res = await api.get(`/api/driver/device/location-data/${exportId}`);
+      const locationArray = res.data;
+      setLocationChecked(true);
+
+      if (Array.isArray(locationArray) && locationArray.length > 0) {
+        const latest = locationArray[locationArray.length - 1];
+        const newLocation = {
+          latitude: latest.latitude,
+          longitude: latest.longitude,
+        };
+
+        setLatestLocation(newLocation);
+        setLatestLocationTimestamp(latest.timestamp || null);
+        setPathHistory(prev => [...prev, newLocation]);
+        setMapKey(k => k + 1);
+      } else {
+        // No reading exists — do not fabricate one.
+        setLatestLocation(null);
+        setLatestLocationTimestamp(null);
+      }
+    } catch (err) {
+      console.error('Live location fetch error:', err);
+      setLocationChecked(true);
+      setLatestLocation(null);
+      setLatestLocationTimestamp(null);
+    }
+  }, [exportId]);
+
   const startLiveTracking = useCallback(() => {
     if (intervalRef.current) return;
-
-    const fetchLiveLocation = async () => {
-      try {
-        const res = await api.get(`/api/driver/device/location-data/${exportId}`);
-        const locationArray = res.data;
-
-        if (Array.isArray(locationArray) && locationArray.length > 0) {
-          const latest = locationArray[locationArray.length - 1];
-          const newLocation = {
-            latitude: latest.latitude,
-            longitude: latest.longitude,
-          };
-
-          setLatestLocation(newLocation);
-          setPathHistory(prev => [...prev, newLocation]);
-          setMapKey(k => k + 1);
-        }
-      } catch (err) {
-        console.error('Live location fetch error:', err);
-      }
-    };
-
     fetchLiveLocation();
     intervalRef.current = setInterval(fetchLiveLocation, 15000);
     setLiveTracking(true);
-  }, [exportId]);
+  }, [fetchLiveLocation]);
 
   const stopLiveTracking = useCallback(() => {
     if (intervalRef.current) {
@@ -253,11 +264,14 @@ const DriverRouteMap = ({ exportId, onBack }) => {
 
   useEffect(() => {
     fetchExportAndRoute();
+    // One-shot check so freshness/unavailable is visible before the driver
+    // taps "Start Live Tracking".
+    fetchLiveLocation();
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (routeIntervalRef.current) clearInterval(routeIntervalRef.current);
     };
-  }, [fetchExportAndRoute]);
+  }, [fetchExportAndRoute, fetchLiveLocation]);
 
   const mapHtml = useMemo(() =>
     generateMapHTML(start, end, routeCoords, intermediateLocations, latestLocation, pathHistory),
@@ -298,14 +312,28 @@ const DriverRouteMap = ({ exportId, onBack }) => {
         </TouchableOpacity>
       )}
 
-      {liveTracking && latestLocation && (
-        <View style={styles.liveInfo}>
-          <Text style={styles.liveText}>📍 Live Tracking Active</Text>
-          <Text style={styles.coordText}>
-            {latestLocation.latitude.toFixed(4)}, {latestLocation.longitude.toFixed(4)}
-          </Text>
-        </View>
-      )}
+      {locationChecked && (() => {
+        const freshness = getFreshness(latestLocationTimestamp);
+        if (freshness.status === FRESHNESS.UNAVAILABLE) {
+          return (
+            <View style={styles.liveInfo}>
+              <Text style={styles.unavailableText}>📍 Location unavailable</Text>
+            </View>
+          );
+        }
+        return (
+          <View style={styles.liveInfo}>
+            <Text style={styles.liveText}>
+              {freshness.status === FRESHNESS.RECENT ? '📍 Live' : '📍 Stale'} — {formatMinutesAgo(freshness.minutesAgo)}
+            </Text>
+            {latestLocation && (
+              <Text style={styles.coordText}>
+                {latestLocation.latitude.toFixed(4)}, {latestLocation.longitude.toFixed(4)}
+              </Text>
+            )}
+          </View>
+        );
+      })()}
     </View>
   );
 };
@@ -386,6 +414,11 @@ const styles = StyleSheet.create({
   liveText: {
     color: '#fff',
     fontWeight: 'bold',
+    fontSize: 12,
+  },
+  unavailableText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontStyle: 'italic',
     fontSize: 12,
   },
   coordText: {

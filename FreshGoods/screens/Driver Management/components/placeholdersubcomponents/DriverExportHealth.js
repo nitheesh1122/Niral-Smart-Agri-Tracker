@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import api from '../../../services/api';
 import { AnimatedCircularProgress } from 'react-native-circular-progress';
+import { getFreshness, formatMinutesAgo, FRESHNESS } from '../../../utils/freshness';
 
 const DriverExportHealth = ({ exportId, onBack }) => {
   const [sensorData, setSensorData] = useState(null);
@@ -95,9 +96,22 @@ const DriverExportHealth = ({ exportId, onBack }) => {
           <Text style={styles.timestamp}>
             📅 Last updated: {new Date(sensorData.timestamp).toLocaleString()}
           </Text>
+          {(() => {
+            const freshness = getFreshness(sensorData.timestamp);
+            return (
+              <Text
+                style={[
+                  styles.freshnessLabel,
+                  { color: freshness.status === FRESHNESS.RECENT ? '#2ECC71' : '#E67E22' },
+                ]}
+              >
+                {freshness.status === FRESHNESS.RECENT ? '● Recent' : '● Stale'} ({formatMinutesAgo(freshness.minutesAgo)})
+              </Text>
+            );
+          })()}
         </>
       ) : (
-        <Text style={styles.errorText}>⚠ No sensor data available.</Text>
+        <Text style={styles.errorText}>⚠ No recent sensor data available.</Text>
       )}
 
       <TouchableOpacity onPress={onBack}>
@@ -144,6 +158,11 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 13,
     color: '#888',
+  },
+  freshnessLabel: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: '600',
   },
   errorText: {
     marginTop: 20,

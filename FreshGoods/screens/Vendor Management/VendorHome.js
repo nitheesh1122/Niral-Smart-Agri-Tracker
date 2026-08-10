@@ -133,7 +133,14 @@ const VendorHome = () => {
     // Management sub‑pages
     switch (activeSection) {
       case 'exportDashboard':
-        return <VendorExportDashboard />;
+        return (
+          <VendorExportDashboard
+            onChatWithDriver={(id, name) => {
+              startChat('driver', id, name);
+              setActiveSection('driverChat');
+            }}
+          />
+        );
       case 'analytics':
         return <VendorAnalytics onBack={() => setActiveSection('home')} />;
       case 'serviceRequests':
@@ -149,7 +156,14 @@ const VendorHome = () => {
       case 'settings':
         return <SettingsScreen onBack={() => setActiveSection('home')} />;
       default:
-        return <VendorHomePlaceHolder />;
+        return (
+          <VendorHomePlaceHolder
+            onChatWithDriver={(id, name) => {
+              startChat('driver', id, name);
+              setActiveSection('driverChat');
+            }}
+          />
+        );
     }
   };
 

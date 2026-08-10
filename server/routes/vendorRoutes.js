@@ -534,7 +534,9 @@ router.get('/export/passedstatus/:vendorId', async (req, res) => {
     })
       .populate('driver', 'name mobileNo')
       .populate('vehicle')
-      .populate('vendorId', 'name mobileNo');
+      .populate('vendorId', 'name mobileNo')
+      .populate('customer', 'name mobileNo')
+      .populate('device', 'deviceName isAssigned');
 
     res.status(200).json(startedExports);
   } catch (error) {
@@ -689,7 +691,9 @@ router.get('/exports/:vendorId', async (req, res) => {
     }
     const exports = await Export.find({ vendorId: req.params.vendorId })
       .populate('driver', 'name mobileNo')
-      .populate('vehicle', 'vehicleNumber')
+      .populate('vehicle', 'vehicleNumber brand capacity')
+      .populate('customer', 'name mobileNo')
+      .populate('device', 'deviceName isAssigned')
       .sort({ createdAt: -1 });
     res.json(exports);
   } catch (err) {

@@ -16,6 +16,7 @@ import {
     Modal,
     Switch,
     ScrollView,
+    Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -38,6 +39,8 @@ import {
     AnimatedCounter,
 } from '../../components/AnimatedComponents';
 import ExportLocationView from './vendorHomeComponents/exportLocationView';
+import MonitorHealthView from './vendorHomeComponents/monitorHealthView';
+import { getFreshness, formatMinutesAgo, FRESHNESS } from '../../utils/freshness';
 
 const EVENT_LABELS = {
     SHIPMENT_CREATED: 'Shipment created',
@@ -185,13 +188,15 @@ const ExportCard = ({ item, onStart, onComplete, onOpenDetails, index }) => {
 // ═══════════════════════════════════════════════════════════════════
 // SHIPMENT DETAILS MODAL — full field set, tracking permissions, timeline
 // ═══════════════════════════════════════════════════════════════════
-const ShipmentDetailsModal = ({ item, onClose, onViewLocation }) => {
+const ShipmentDetailsModal = ({ item, onClose, onViewLocation, onChatWithDriver }) => {
     const [customers, setCustomers] = useState([]);
     const [permissions, setPermissions] = useState({}); // customerId -> boolean
     const [savingPermissions, setSavingPermissions] = useState(false);
     const [loadingCustomers, setLoadingCustomers] = useState(true);
     const [events, setEvents] = useState([]);
     const [loadingEvents, setLoadingEvents] = useState(true);
+    const [latestReading, setLatestReading] = useState(undefined); // undefined = loading, null = none found
+    const [showFullIoT, setShowFullIoT] = useState(false);
 
     useEffect(() => {
         (async () => {
@@ -221,6 +226,22 @@ const ShipmentDetailsModal = ({ item, onClose, onViewLocation }) => {
                 setLoadingEvents(false);
             }
         })();
+
+        // Only shipments with a linked device can have sensor readings at all.
+        if (!item.device) {
+            setLatestReading(null);
+        } else {
+            (async () => {
+                try {
+                    const res = await api.get(`/api/vendor/device/sensor-data/${item._id}`);
+                    const readings = res.data || [];
+                    setLatestReading(readings.length > 0 ? readings[readings.length - 1] : null);
+                } catch (err) {
+                    console.error('Failed to load IoT summary:', err);
+                    setLatestReading(null);
+                }
+            })();
+        }
     }, [item._id]);
 
     const savePermissions = async () => {
@@ -230,16 +251,46 @@ const ShipmentDetailsModal = ({ item, onClose, onViewLocation }) => {
                 .filter(([, allowed]) => allowed !== undefined)
                 .map(([customerId, allowed]) => ({ customerId, allowed }));
 
+            const before = {};
+            (item.trackingViewers || []).forEach((v) => {
+                before[v.customer?._id || v.customer] = v.allowed;
+            });
+            const granted = viewers.filter((v) => v.allowed && !before[v.customerId]).length;
+            const revoked = viewers.filter((v) => !v.allowed && before[v.customerId]).length;
+
             await api.put(`/api/vendor/export/${item._id}/tracking-permissions`, { viewers });
-            Alert.alert('Success', 'Tracking permissions updated');
+
+            if (granted > 0 && revoked > 0) {
+                Alert.alert('Saved', `Tracking access granted for ${granted}, revoked for ${revoked}.`);
+            } else if (granted > 0) {
+                Alert.alert('Tracking access granted.');
+            } else if (revoked > 0) {
+                Alert.alert('Tracking access revoked.');
+            } else {
+                Alert.alert('Saved', 'No changes to tracking permissions.');
+            }
         } catch (err) {
-            Alert.alert('Error', err.response?.data?.error || 'Failed to update tracking permissions');
+            Alert.alert('Error', err.response?.data?.error || 'Failed to update tracking permissions. Please try again.');
         } finally {
             setSavingPermissions(false);
         }
     };
 
     const canViewLocation = item.status === 'IN_TRANSIT' || item.status === 'COMPLETED';
+
+    const handleCallDriver = () => {
+        if (item.driver?.mobileNo) {
+            Linking.openURL(`tel:${item.driver.mobileNo}`);
+        }
+    };
+
+    if (showFullIoT) {
+        return (
+            <Modal visible animationType="slide" onRequestClose={() => setShowFullIoT(false)}>
+                <MonitorHealthView selectedExport={item} onBack={() => setShowFullIoT(false)} />
+            </Modal>
+        );
+    }
 
     return (
         <Modal visible animationType="slide" onRequestClose={onClose}>
@@ -253,35 +304,95 @@ const ShipmentDetailsModal = ({ item, onClose, onViewLocation }) => {
                 </LinearGradient>
 
                 <ScrollView style={styles.detailsScroll}>
-                    {/* Core fields */}
-                    <Text style={styles.detailsSectionTitle}>Shipment Details</Text>
+                    {/* Shipment */}
+                    <Text style={styles.detailsSectionTitle}>Shipment</Text>
                     <ThemedCard variant="outlined" style={styles.detailsCard}>
-                        <DetailRow label="Status" value={item.status} />
                         <DetailRow label="Product" value={item.itemName} />
-                        <DetailRow label="Quantity" value={`${item.quantity} ${item.unit || ''}`} />
-                        <DetailRow label="Vendor" value="You" />
-                        <DetailRow label="Driver" value={item.driver?.name || 'Unassigned'} />
-                        <DetailRow label="Vehicle" value={item.vehicle?.vehicleNumber || 'N/A'} />
-                        <DetailRow label="Customer" value={item.customer?.name || 'None assigned'} />
-                        <DetailRow label="Start Date" value={new Date(item.startDate).toLocaleString()} />
-                        <DetailRow label="End Date" value={new Date(item.endDate).toLocaleString()} />
-                        <DetailRow
-                            label="Expected Drop Time"
-                            value={item.expectedDropTime ? new Date(item.expectedDropTime).toLocaleString() : 'Not set'}
-                        />
-                        <DetailRow label="Driver Salary" value={item.driverSalary != null ? `₹${item.driverSalary}` : 'N/A'} />
+                        <DetailRow label="Quantity" value={`${item.quantity} ${item.unit || ''}`.trim()} />
+                        <DetailRow label="Status" value={item.status} />
+                        <DetailRow label="Created" value={item.createdAt ? new Date(item.createdAt).toLocaleString() : 'N/A'} />
+                        {item.status === 'REJECTED' && (
+                            <DetailRow label="Rejection Reason" value={item.rejectionReason || 'No reason given'} />
+                        )}
+                    </ThemedCard>
+
+                    {/* Trip */}
+                    <Text style={styles.detailsSectionTitle}>Trip</Text>
+                    <ThemedCard variant="outlined" style={styles.detailsCard}>
                         <DetailRow
                             label="Start Location"
                             value={`${item.startLocation?.latitude?.toFixed(4)}, ${item.startLocation?.longitude?.toFixed(4)}`}
                         />
                         <DetailRow
-                            label="End Location"
+                            label="Destination"
                             value={`${item.endLocation?.latitude?.toFixed(4)}, ${item.endLocation?.longitude?.toFixed(4)}`}
                         />
-                        <DetailRow label="Instructions" value={item.instructions || 'None'} />
-                        {item.status === 'REJECTED' && (
-                            <DetailRow label="Rejection Reason" value={item.rejectionReason || 'No reason given'} />
+                        <DetailRow
+                            label="Trip Duration"
+                            value={`${new Date(item.startDate).toLocaleDateString()} → ${new Date(item.endDate).toLocaleDateString()}`}
+                        />
+                        <DetailRow
+                            label="Expected Drop Time"
+                            value={item.expectedDropTime ? new Date(item.expectedDropTime).toLocaleString() : 'Not set'}
+                        />
+                        {item.instructions && <DetailRow label="Instructions" value={item.instructions} />}
+                    </ThemedCard>
+
+                    {/* Driver */}
+                    <Text style={styles.detailsSectionTitle}>Driver</Text>
+                    <ThemedCard variant="outlined" style={styles.detailsCard}>
+                        <DetailRow label="Name" value={item.driver?.name || 'Unassigned'} />
+                        {item.driver?.mobileNo && <DetailRow label="Contact" value={item.driver.mobileNo} />}
+                        <DetailRow
+                            label="Assignment"
+                            value={item.driver ? 'Assigned' : (item.status === 'REJECTED' ? 'Unassigned (rejected)' : 'Unassigned')}
+                        />
+                        {item.driver && (
+                            <View style={styles.driverActionsRow}>
+                                {item.driver.mobileNo && (
+                                    <ThemedButton
+                                        title="Call"
+                                        variant="outline"
+                                        size="small"
+                                        icon="📞"
+                                        onPress={handleCallDriver}
+                                        style={styles.driverActionBtn}
+                                    />
+                                )}
+                                {onChatWithDriver && (
+                                    <ThemedButton
+                                        title="Message"
+                                        variant="primary"
+                                        size="small"
+                                        icon="💬"
+                                        onPress={() => onChatWithDriver(item.driver._id, item.driver.name)}
+                                        style={styles.driverActionBtn}
+                                    />
+                                )}
+                            </View>
                         )}
+                    </ThemedCard>
+
+                    {/* Vehicle */}
+                    <Text style={styles.detailsSectionTitle}>Vehicle</Text>
+                    <ThemedCard variant="outlined" style={styles.detailsCard}>
+                        <DetailRow label="Vehicle Number" value={item.vehicle?.vehicleNumber || 'N/A'} />
+                        {item.vehicle?.brand && <DetailRow label="Brand" value={item.vehicle.brand} />}
+                        {item.vehicle?.capacity && <DetailRow label="Capacity" value={item.vehicle.capacity} />}
+                        <DetailRow label="IoT Device" value={item.device?.deviceName || 'No device linked'} />
+                    </ThemedCard>
+
+                    {/* Customer */}
+                    <Text style={styles.detailsSectionTitle}>Customer</Text>
+                    <ThemedCard variant="outlined" style={styles.detailsCard}>
+                        <DetailRow label="Name" value={item.customer?.name || 'None assigned'} />
+                        {item.customer?.mobileNo && <DetailRow label="Contact" value={item.customer.mobileNo} />}
+                    </ThemedCard>
+
+                    {/* Commercial */}
+                    <Text style={styles.detailsSectionTitle}>Commercial</Text>
+                    <ThemedCard variant="outlined" style={styles.detailsCard}>
+                        <DetailRow label="Driver Salary" value={item.driverSalary != null ? `₹${item.driverSalary}` : 'N/A'} />
                     </ThemedCard>
 
                     {/* Live location */}
@@ -294,6 +405,41 @@ const ShipmentDetailsModal = ({ item, onClose, onViewLocation }) => {
                             style={styles.detailsActionBtn}
                         />
                     )}
+
+                    {/* IoT summary */}
+                    <Text style={styles.detailsSectionTitle}>IoT Device</Text>
+                    <ThemedCard variant="outlined" style={styles.detailsCard}>
+                        {!item.device ? (
+                            <Text style={styles.emptySubtext}>No IoT device linked to this shipment's vehicle.</Text>
+                        ) : latestReading === undefined ? (
+                            <ActivityIndicator color={colors.primary} />
+                        ) : latestReading === null ? (
+                            <Text style={styles.emptySubtext}>No recent sensor data available.</Text>
+                        ) : (
+                            <>
+                                <DetailRow label="Device" value={item.device.deviceName} />
+                                <DetailRow label="Temperature" value={`${latestReading.temperature}°C`} />
+                                <DetailRow label="Humidity" value={`${latestReading.humidity}%`} />
+                                <DetailRow label="Ethylene" value={`${latestReading.ethyleneLevel} ppm`} />
+                                {(() => {
+                                    const freshness = getFreshness(latestReading.timestamp);
+                                    return (
+                                        <DetailRow
+                                            label="Last Updated"
+                                            value={`${new Date(latestReading.timestamp).toLocaleTimeString()} (${freshness.status === FRESHNESS.RECENT ? 'Recent' : 'Stale'}, ${formatMinutesAgo(freshness.minutesAgo)})`}
+                                        />
+                                    );
+                                })()}
+                                <ThemedButton
+                                    title="View Full Sensor History"
+                                    variant="outline"
+                                    size="small"
+                                    onPress={() => setShowFullIoT(true)}
+                                    style={styles.detailsActionBtn}
+                                />
+                            </>
+                        )}
+                    </ThemedCard>
 
                     {/* Tracking permissions */}
                     <Text style={styles.detailsSectionTitle}>Customer Tracking Permissions</Text>
@@ -367,7 +513,7 @@ const DetailRow = ({ label, value }) => (
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-const VendorExportDashboard = () => {
+const VendorExportDashboard = ({ onChatWithDriver }) => {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [exports, setExports] = useState([]);
@@ -604,6 +750,7 @@ const VendorExportDashboard = () => {
                         setDetailsItem(null);
                         setLocationItem(item);
                     }}
+                    onChatWithDriver={onChatWithDriver}
                 />
             )}
         </View>
@@ -670,6 +817,14 @@ const styles = StyleSheet.create({
     detailsScroll: {
         flex: 1,
         padding: spacing.md,
+    },
+    driverActionsRow: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+        marginTop: spacing.sm,
+    },
+    driverActionBtn: {
+        flex: 1,
     },
     detailsSectionTitle: {
         ...typography.bodyMedium,

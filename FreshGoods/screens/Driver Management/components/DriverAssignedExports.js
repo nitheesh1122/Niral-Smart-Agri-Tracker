@@ -14,17 +14,22 @@ import {
   RefreshControl,
   TextInput,
   Modal,
+  Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme';
+import DriverJobDetailsModal from './DriverJobDetailsModal';
 
-const DriverAssignedExports = () => {
+const DriverAssignedExports = ({ onChatWithVendor }) => {
   const [exports, setExports] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [loadingExportId, setLoadingExportId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('all'); // 'all', 'pending', 'accepted', 'scheduled'
+  const [detailsItem, setDetailsItem] = useState(null);
 
   // Reject modal
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -33,6 +38,7 @@ const DriverAssignedExports = () => {
 
   const fetchExports = useCallback(async () => {
     try {
+      setError(null);
       const driverId = await AsyncStorage.getItem('userId');
       if (!driverId) return;
 
@@ -40,7 +46,9 @@ const DriverAssignedExports = () => {
       setExports(res.data || []);
     } catch (err) {
       console.error('Failed to fetch assigned exports:', err);
+      setError('Unable to load your exports. Try again.');
     } finally {
+      setLoading(false);
       setRefreshing(false);
     }
   }, []);
@@ -221,8 +229,17 @@ const DriverAssignedExports = () => {
           <Text style={styles.detailText}>🏪 Vendor: {item.vendorId?.name || 'N/A'}</Text>
           <Text style={styles.detailText}>📞 Contact: {item.vendorId?.mobileNo || 'N/A'}</Text>
           <Text style={styles.detailText}>📦 Quantity: {item.quantity} {item.unit || ''}</Text>
-          <Text style={styles.detailText}>💰 Cost: ₹{item.costPrice} | Sale: ₹{item.salePrice}</Text>
+          {/* Driver sees their own salary only — costPrice/salePrice are the
+              vendor's financial data, not the driver's business (Stage 7 §2). */}
           <Text style={styles.detailText}>💵 Your Salary: ₹{item.driverSalary != null ? item.driverSalary : 'N/A'}</Text>
+          {item.vendorId?.mobileNo && (
+            <TouchableOpacity onPress={() => Linking.openURL(`tel:${item.vendorId.mobileNo}`)}>
+              <Text style={styles.callVendorLink}>📞 Call Vendor</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={() => setDetailsItem(item)}>
+            <Text style={styles.callVendorLink}>ℹ️ View Full Details & Timeline</Text>
+          </TouchableOpacity>
           {item.customer?.name && (
             <Text style={styles.detailText}>🧑 Customer: {item.customer.name}</Text>
           )}
@@ -321,6 +338,27 @@ const DriverAssignedExports = () => {
     </TouchableOpacity>
   );
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Loading assigned exports...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.emptyIcon}>⚠️</Text>
+        <Text style={styles.loadingText}>{error}</Text>
+        <TouchableOpacity onPress={fetchExports} style={styles.retryButton}>
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Assigned Exports</Text>
@@ -393,6 +431,15 @@ const DriverAssignedExports = () => {
           </View>
         </View>
       </Modal>
+
+      {detailsItem && (
+        <DriverJobDetailsModal
+          item={detailsItem}
+          onClose={() => setDetailsItem(null)}
+          onChanged={fetchExports}
+          onChatWithVendor={onChatWithVendor}
+        />
+      )}
     </View>
   );
 };
@@ -536,6 +583,29 @@ const styles = StyleSheet.create({
     ...typography.bodySmall,
     color: '#8A6D00',
     fontWeight: '500',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  retryButton: {
+    marginTop: spacing.lg,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.round,
+  },
+  retryText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  callVendorLink: {
+    ...typography.bodySmall,
+    color: colors.primary,
+    fontWeight: '600',
+    marginTop: spacing.sm,
   },
   futureNotice: {
     marginTop: spacing.md,

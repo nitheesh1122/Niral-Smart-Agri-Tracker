@@ -97,11 +97,28 @@ const DriverHome = () => {
       case 'profile':
         return <DriverProfile />;
       case 'exports':
-        return <DriverAssignedExports />;
+        return (
+          <DriverAssignedExports
+            onChatWithVendor={(id, name) => {
+              setVendorId(id);
+              setVendorName(name);
+              setActiveSection('chat');
+            }}
+          />
+        );
       case 'history':
         return <DriverDeliveryHistory />;
       default:
-        return <DriverHomePlaceholder />;
+        return (
+          <DriverHomePlaceholder
+            onViewAllJobs={() => setActiveSection('exports')}
+            onChatWithVendor={(id, name) => {
+              setVendorId(id);
+              setVendorName(name);
+              setActiveSection('chat');
+            }}
+          />
+        );
     }
   };
 

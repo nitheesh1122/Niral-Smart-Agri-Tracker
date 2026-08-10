@@ -6,6 +6,7 @@ const Driver = require('../models/driverModel');
 const Vehicle = require('../models/VehicleModel');
 const Device = require('../models/deviceModel');
 const Export = require('../models/shipmentModel');
+const ShipmentEvent = require('../models/shipmentEventModel');
 const { STATUSES, assertTransition } = require('../utils/shipmentStateMachine');
 const logShipmentEvent = require('../utils/logShipmentEvent');
 const { createNotification } = require('../services/notificationService');
@@ -18,7 +19,10 @@ router.get('/export/driver/:driverId', async (req, res) => {
     }
     const exports = await Export.find({ driver: req.params.driverId })
       .populate('vendorId', 'name mobileNo')
-      .populate('customer', 'name'); // driver-facing job list — see DriverAssignedExports.js
+      .populate('customer', 'name')
+      .populate('vehicle', 'vehicleNumber brand capacity')
+      .populate('device', 'deviceName isAssigned')
+      .sort({ createdAt: -1 }); // driver-facing job list — see DriverAssignedExports.js / DriverHomePlaceholder.js
 
     res.json(exports);
   } catch (err) {
@@ -408,5 +412,21 @@ router.get('/map/export/:id', async (req, res) => {
   }
 });
 
+// GET /api/driver/export/:id/events — shipment timeline for the assigned driver
+router.get('/export/:id/events', async (req, res) => {
+  try {
+    const exp = await Export.findById(req.params.id);
+    if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (!exp.driver || exp.driver.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
+    }
+
+    const events = await ShipmentEvent.find({ shipment: exp._id }).sort({ timestamp: 1 });
+    res.json(events);
+  } catch (err) {
+    console.error('Error fetching shipment events:', err);
+    res.status(500).json({ error: 'Failed to fetch shipment events' });
+  }
+});
 
 module.exports = router;

@@ -95,6 +95,11 @@ export default function RoleSelectionScreen({ navigation, route }) {
     const { mode } = route.params || { mode: 'login' }; // 'login' or 'signup'
     const [selectedRole, setSelectedRole] = useState(null);
 
+    // Driver accounts are created by a Vendor (Vendor > Manage Drivers > Add
+    // Driver), never through public self-registration — so Driver is a valid
+    // role to log in as, but not one to sign up as.
+    const availableRoles = mode === 'signup' ? ROLES.filter((r) => r.id !== 'Driver') : ROLES;
+
     const handleRoleSelect = (role) => {
         setSelectedRole(role.id);
 
@@ -127,7 +132,7 @@ export default function RoleSelectionScreen({ navigation, route }) {
 
                         {/* Role Cards */}
                         <View style={styles.rolesContainer}>
-                            {ROLES.map((role) => (
+                            {availableRoles.map((role) => (
                                 <RoleCard
                                     key={role.id}
                                     role={role}
@@ -136,6 +141,12 @@ export default function RoleSelectionScreen({ navigation, route }) {
                                 />
                             ))}
                         </View>
+
+                        {mode === 'signup' && (
+                            <Text style={styles.driverNote}>
+                                Driver accounts are created by a Vendor — ask yours to add you.
+                            </Text>
+                        )}
 
                         {/* Back Button */}
                         <TouchableOpacity
@@ -233,6 +244,12 @@ const styles = StyleSheet.create({
         fontSize: 18,
         color: colors.text.light,
         fontWeight: 'bold',
+    },
+    driverNote: {
+        ...typography.bodySmall,
+        color: colors.text.muted,
+        textAlign: 'center',
+        marginTop: spacing.lg,
     },
     backButton: {
         marginTop: spacing.xl,

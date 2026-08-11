@@ -20,19 +20,18 @@ const notifyEligibleCustomers = require('../utils/notifyEligibleCustomers');
 router.use(authorize('Vendor'));
 
 // Driver Management Routes For Vendor
-// GET /api/vendor/all — Get all drivers for the vendor
+//
+// Drivers do not self-register (see server/routes/signupRoute.js — the
+// Driver branch is rejected there). A Driver account only ever comes into
+// existence via POST /api/vendor/drivers below, created by an authenticated
+// Vendor, with that Vendor set as the driver's single owner (Driver.vendor).
+// vendorId is NEVER taken from the request body/URL/query — always
+// req.user.id from the verified JWT.
+
+// GET /api/vendor/all — the calling vendor's own drivers.
 router.get('/all', async (req, res) => {
   try {
-    const vendorId = req.query.vendorId;
-
-    if (!vendorId) {
-      return res.status(400).json({ error: 'Vendor ID is required' });
-    }
-    if (vendorId !== req.user.id) {
-      return res.status(403).json({ error: 'Access denied. Not your account.' });
-    }
-
-    const vendor = await Vendor.findById(vendorId).populate('drivers');
+    const vendor = await Vendor.findById(req.user.id).populate('drivers');
     if (!vendor) {
       return res.status(404).json({ error: 'Vendor not found' });
     }
@@ -44,60 +43,86 @@ router.get('/all', async (req, res) => {
   }
 });
 
-// Fetch all drivers (for selection)
-router.get('/available-drivers', async (req, res) => {
-  try {
-    const drivers = await Driver.find({});
-    res.json(drivers);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch drivers' });
-  }
-});
+// POST /api/vendor/drivers — create a new Driver account owned by the
+// calling vendor. This is the ONLY way a Driver account is created.
+router.post('/drivers', async (req, res) => {
+  const { name, username, email, mobile, password, licenseNo, state, district } = req.body;
 
-// Add a driver to vendor
-router.post('/add-driver', async (req, res) => {
-  const { vendorId, driverId } = req.body;
-
-  if (!vendorId || !driverId) {
-    return res.status(400).json({ error: 'Missing vendorId or driverId' });
+  if (!name || !username || !email || !mobile || !password || !licenseNo || !state || !district) {
+    return res.status(400).json({
+      error: 'name, username, email, mobile, password, licenseNo, state and district are required',
+    });
   }
-  if (vendorId !== req.user.id) {
-    return res.status(403).json({ error: 'Access denied. Not your account.' });
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
   }
 
   try {
-    const vendor = await Vendor.findById(vendorId);
-    if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
-
-    if (vendor.drivers.includes(driverId)) {
-      return res.status(409).json({ error: 'Driver already assigned' });
+    const [existingUsername, existingEmail] = await Promise.all([
+      Driver.findOne({ username }).select('_id'),
+      Driver.findOne({ email }).select('_id'),
+    ]);
+    if (existingUsername) {
+      return res.status(409).json({ error: 'That username is already taken.' });
+    }
+    if (existingEmail) {
+      return res.status(409).json({ error: 'A driver with that email already exists.' });
     }
 
-    vendor.drivers.push(driverId);
-    await vendor.save();
-    res.json({ success: true, message: 'Driver added to vendor' });
+    const driver = new Driver({
+      name,
+      username,
+      email,
+      mobileNo: mobile,
+      password,
+      licenseNo,
+      state,
+      district,
+      vendor: req.user.id,
+    });
+    await driver.save();
+
+    await Vendor.findByIdAndUpdate(req.user.id, { $addToSet: { drivers: driver._id } });
+
+    // driver.toJSON() (defined on the model) strips the password hash.
+    res.status(201).json({ success: true, message: 'Driver created', driver });
   } catch (err) {
-    console.error('Add Driver Error:', err);
-    res.status(500).json({ error: 'Server error' });
+    if (err.code === 11000) {
+      const field = Object.keys(err.keyPattern || {})[0] || 'field';
+      return res.status(409).json({ error: `That ${field} is already in use.` });
+    }
+    console.error('Create Driver Error:', err);
+    res.status(500).json({ error: 'Failed to create driver' });
   }
 });
 
+// POST /api/vendor/remove-driver — un-assign a driver the calling vendor
+// owns. Does not delete the Driver account (it may have real work/shipment
+// history attached) — just detaches it from this vendor. Membership in the
+// vendor's own `drivers[]` array (not `driver.vendor`) is the source of
+// truth for "is this mine", so a handful of pre-existing drivers claimed
+// under the old add-driver model (which never set `driver.vendor`) can
+// still be removed correctly.
 router.post('/remove-driver', async (req, res) => {
-  const { vendorId, driverId } = req.body;
+  const { driverId } = req.body;
 
-  if (!vendorId || !driverId) {
-    return res.status(400).json({ error: 'Missing vendorId or driverId' });
-  }
-  if (vendorId !== req.user.id) {
-    return res.status(403).json({ error: 'Access denied. Not your account.' });
+  if (!driverId) {
+    return res.status(400).json({ error: 'Missing driverId' });
   }
 
   try {
-    const vendor = await Vendor.findById(vendorId);
+    const vendor = await Vendor.findById(req.user.id);
     if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+    if (!vendor.drivers.some((id) => id.toString() === driverId)) {
+      return res.status(403).json({ error: 'Access denied. Not your driver.' });
+    }
 
-    vendor.drivers = vendor.drivers.filter(id => id.toString() !== driverId);
+    vendor.drivers = vendor.drivers.filter((id) => id.toString() !== driverId);
     await vendor.save();
+    // Clear ownership only when this vendor actually was the recorded
+    // owner — never blindly null out a field we didn't set.
+    await Driver.updateOne({ _id: driverId, vendor: req.user.id }, { $set: { vendor: null } });
+
     res.json({ success: true, message: 'Driver removed from vendor' });
   } catch (err) {
     console.error('Remove Driver Error:', err);

@@ -1,9 +1,13 @@
 /**
  * CustomerDashboard.js (formerly CustomerHomePlaceholder.js)
- * Premium customer dashboard with animations and real-time data
+ * Customer home screen — shows the authenticated customer's own active
+ * shipments, recent shipment history, and recent notifications. Every
+ * section is backed by a real endpoint; nothing here is fabricated, and a
+ * failed fetch surfaces an error state instead of falling back to mock data
+ * (Stage 8 Phase 1).
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,11 +16,9 @@ import {
   RefreshControl,
   TouchableOpacity,
   ActivityIndicator,
-  Animated,
-  Dimensions,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../services/api';
 import {
   colors,
@@ -32,34 +34,11 @@ import ThemedCard from '../../components/ThemedCard';
 import {
   SlideInView,
   FadeInView,
-  AnimatedCounter,
   AnimatedPressable,
-  PulseView,
 } from '../../components/AnimatedComponents';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-// ═══════════════════════════════════════════════════════════════════
-// STAT CARD COMPONENT
-// ═══════════════════════════════════════════════════════════════════
-const StatCard = ({ icon, value, label, color, gradient, delay = 0 }) => (
-  <SlideInView delay={delay} style={[styles.statCard, { borderLeftColor: color }]}>
-    <LinearGradient
-      colors={gradient || [color + '15', color + '05']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.statGradient}
-    >
-      <Text style={styles.statIcon}>{icon}</Text>
-      <AnimatedCounter
-        value={value}
-        duration={1500}
-        style={[styles.statValue, { color: color }]}
-      />
-      <Text style={styles.statLabel}>{label}</Text>
-    </LinearGradient>
-  </SlideInView>
-);
+const ACTIVE_STATUSES = ['ASSIGNED', 'ACCEPTED', 'IN_TRANSIT'];
+const RECENT_STATUSES = ['COMPLETED', 'CANCELLED', 'REJECTED'];
 
 // ═══════════════════════════════════════════════════════════════════
 // QUICK ACTION BUTTON
@@ -76,82 +55,83 @@ const QuickActionButton = ({ icon, label, color, onPress, delay = 0 }) => (
 );
 
 // ═══════════════════════════════════════════════════════════════════
-// DELIVERY CARD COMPONENT
+// ACTIVE SHIPMENT CARD
 // ═══════════════════════════════════════════════════════════════════
-const DeliveryCard = ({ item, onTrack, delay = 0 }) => {
+const ActiveShipmentCard = ({ item, onPress, delay = 0 }) => {
   const statusColor = getStatusColor(item.status);
   const statusBg = getStatusBgColor(item.status);
+  const destination = item.routes?.length ? item.routes[item.routes.length - 1] : 'Destination pending';
 
   return (
     <SlideInView delay={delay}>
-      <ThemedCard variant="elevated" style={styles.deliveryCard}>
-        {/* Status Badge */}
-        <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
-          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-          <Text style={[styles.statusText, { color: statusColor }]}>
-            {item.status || 'Active'}
-          </Text>
-        </View>
+      <TouchableOpacity onPress={() => onPress(item)} activeOpacity={0.85}>
+        <ThemedCard variant="elevated" style={styles.deliveryCard}>
+          <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+            <Text style={[styles.statusText, { color: statusColor }]}>{item.status}</Text>
+          </View>
 
-        {/* Product Info */}
-        <View style={styles.deliveryHeader}>
-          <View style={styles.productIcon}>
-            <Text style={styles.productEmoji}>📦</Text>
+          <View style={styles.deliveryHeader}>
+            <View style={styles.productIcon}>
+              <Text style={styles.productEmoji}>📦</Text>
+            </View>
+            <View style={styles.productInfo}>
+              <Text style={styles.productName} numberOfLines={1}>
+                {item.itemName || 'Shipment'}
+              </Text>
+              <Text style={styles.vendorName} numberOfLines={1}>
+                🏪 {item.vendorId?.name || 'Vendor'} · {item.quantity ?? '-'} {item.unit || ''}
+              </Text>
+            </View>
           </View>
-          <View style={styles.productInfo}>
-            <Text style={styles.productName} numberOfLines={1}>
-              {item.itemName || 'Goods Shipment'}
-            </Text>
-            <Text style={styles.vendorName}>
-              🏪 {item.vendorId?.name || 'Vendor'}
-            </Text>
-          </View>
-        </View>
 
-        {/* Route Info */}
-        <View style={styles.routeContainer}>
-          <View style={styles.routePoint}>
-            <View style={[styles.routeDot, { backgroundColor: colors.success }]} />
-            <Text style={styles.routeText} numberOfLines={1}>
-              {item.startLocation?.name || item.routes?.[0] || 'Origin'}
+          <View style={styles.metaRow}>
+            <Text style={styles.metaText} numberOfLines={1}>📍 {destination}</Text>
+          </View>
+          {item.expectedDropTime && (
+            <Text style={styles.metaText}>
+              🕒 Expected: {new Date(item.expectedDropTime).toLocaleString()}
             </Text>
-          </View>
-          <View style={styles.routeLine}>
-            <View style={styles.routeLineDashed} />
-          </View>
-          <View style={styles.routePoint}>
-            <View style={[styles.routeDot, { backgroundColor: colors.error }]} />
-            <Text style={styles.routeText} numberOfLines={1}>
-              {item.endLocation?.name || item.routes?.[item.routes?.length - 1] || 'Destination'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Driver Info */}
-        <View style={styles.driverContainer}>
-          <View style={styles.driverInfo}>
-            <Text style={styles.driverIcon}>🚚</Text>
-            <Text style={styles.driverName}>{item.driver?.name || 'Driver assigned'}</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.trackButton}
-            onPress={() => onTrack(item)}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={gradients.primary}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.trackButtonGradient}
-            >
-              <Text style={styles.trackButtonText}>Track →</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </ThemedCard>
+          )}
+        </ThemedCard>
+      </TouchableOpacity>
     </SlideInView>
   );
 };
+
+// ═══════════════════════════════════════════════════════════════════
+// RECENT SHIPMENT ROW
+// ═══════════════════════════════════════════════════════════════════
+const RecentShipmentRow = ({ item, onPress }) => {
+  const statusColor = getStatusColor(item.status);
+  const statusBg = getStatusBgColor(item.status);
+  return (
+    <TouchableOpacity onPress={() => onPress(item)} activeOpacity={0.85} style={styles.recentRow}>
+      <View style={styles.recentInfo}>
+        <Text style={styles.recentName} numberOfLines={1}>{item.itemName || 'Shipment'}</Text>
+        <Text style={styles.recentVendor} numberOfLines={1}>{item.vendorId?.name || 'Vendor'}</Text>
+      </View>
+      <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+        <Text style={[styles.statusText, { color: statusColor }]}>{item.status}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// NOTIFICATION PREVIEW ROW
+// ═══════════════════════════════════════════════════════════════════
+const NotificationRow = ({ item, onPress }) => (
+  <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={styles.notifRow}>
+    {!item.read && <View style={styles.unreadDot} />}
+    <View style={styles.notifTextWrap}>
+      <Text style={[styles.notifTitle, !item.read && styles.notifTitleUnread]} numberOfLines={1}>
+        {item.title}
+      </Text>
+      <Text style={styles.notifMessage} numberOfLines={1}>{item.message}</Text>
+    </View>
+  </TouchableOpacity>
+);
 
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -159,53 +139,59 @@ const DeliveryCard = ({ item, onTrack, delay = 0 }) => {
 const CustomerDashboard = ({ onNavigate }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
-  const [dashboardData, setDashboardData] = useState({
-    customer: { name: 'Customer' },
-    stats: { totalVendors: 0, activeDeliveries: 0, nearbyDeliveries: 0 },
-    nearbyExports: [],
-  });
 
-  const scrollY = useRef(new Animated.Value(0)).current;
+  const [profile, setProfile] = useState(null);
 
-  const fetchDashboard = useCallback(async () => {
-    try {
-      const customerId = await AsyncStorage.getItem('userId');
-      if (!customerId) {
-        setError('User not logged in');
-        return;
-      }
+  const [shipments, setShipments] = useState([]);
+  const [shipmentsError, setShipmentsError] = useState(null);
 
-      const response = await api.get(`/api/customer/dashboard/${customerId}`);
-      setDashboardData(response.data);
-      setError(null);
-    } catch (err) {
-      console.error('Dashboard fetch error:', err);
-      // Use mock data for demo if API fails
-      setDashboardData({
-        customer: { name: 'Customer', district: 'Unknown', state: 'TN' },
-        stats: { totalVendors: 5, activeDeliveries: 2, nearbyDeliveries: 3 },
-        nearbyExports: [],
-      });
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsError, setNotificationsError] = useState(null);
+
+  const fetchAll = useCallback(async () => {
+    const userId = await AsyncStorage.getItem('userId');
+
+    const results = await Promise.allSettled([
+      userId ? api.get(`/api/customer/profile/${userId}`) : Promise.reject(new Error('Not logged in')),
+      api.get('/api/customer/my-shipments'),
+      api.get('/api/user/notifications'),
+    ]);
+
+    const [profileRes, shipmentsRes, notificationsRes] = results;
+
+    if (profileRes.status === 'fulfilled') {
+      setProfile(profileRes.value.data);
     }
+
+    if (shipmentsRes.status === 'fulfilled') {
+      setShipments(shipmentsRes.value.data || []);
+      setShipmentsError(null);
+    } else {
+      setShipmentsError('Unable to load your shipments. Try again.');
+    }
+
+    if (notificationsRes.status === 'fulfilled') {
+      setNotifications(notificationsRes.value.data || []);
+      setNotificationsError(null);
+    } else {
+      setNotificationsError('Unable to load notifications.');
+    }
+
+    setLoading(false);
+    setRefreshing(false);
   }, []);
 
   useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
+    fetchAll();
+  }, [fetchAll]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchDashboard();
-  }, [fetchDashboard]);
+    fetchAll();
+  }, [fetchAll]);
 
-  const handleTrack = (item) => {
-    // Navigate to tracking screen
-    console.log('Track item:', item._id);
-    onNavigate?.('tracking', { exportId: item._id, exportData: item });
+  const handleOpenShipment = (item) => {
+    onNavigate?.('shipmentDetails', { exportId: item._id, exportData: item });
   };
 
   const getGreeting = () => {
@@ -218,27 +204,21 @@ const CustomerDashboard = ({ onNavigate }) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <PulseView>
-          <View style={styles.loadingIcon}>
-            <Text style={styles.loadingEmoji}>🌱</Text>
-          </View>
-        </PulseView>
+        <ActivityIndicator size="large" color={colors.primary} />
         <Text style={styles.loadingText}>Loading your dashboard...</Text>
       </View>
     );
   }
 
-  const { customer, stats, nearbyExports } = dashboardData;
-
-  const headerOpacity = scrollY.interpolate({
-    inputRange: [0, 100],
-    outputRange: [1, 0.9],
-    extrapolate: 'clamp',
-  });
+  const activeShipments = shipments.filter((s) => ACTIVE_STATUSES.includes(s.status));
+  const recentShipments = shipments
+    .filter((s) => RECENT_STATUSES.includes(s.status))
+    .slice(0, 5);
+  const recentNotifications = notifications.slice(0, 5);
 
   return (
     <View style={styles.container}>
-      <Animated.ScrollView
+      <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -249,60 +229,30 @@ const CustomerDashboard = ({ onNavigate }) => {
             tintColor={colors.primary}
           />
         }
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
-        scrollEventThrottle={16}
       >
         {/* Welcome Section */}
-        <Animated.View style={{ opacity: headerOpacity }}>
+        <FadeInView duration={500}>
           <LinearGradient
             colors={gradients.forest}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.welcomeSection}
           >
-            <FadeInView duration={500}>
-              <Text style={styles.greeting}>{getGreeting()}</Text>
-              <Text style={styles.userName}>{customer.name} 👋</Text>
+            <Text style={styles.greeting}>{getGreeting()}</Text>
+            <Text style={styles.userName}>{profile?.name || 'Customer'} 👋</Text>
+            {(profile?.district || profile?.state) && (
               <View style={styles.locationBadge}>
                 <Text style={styles.locationIcon}>📍</Text>
                 <Text style={styles.locationText}>
-                  {customer.district || 'Location'}, {customer.state || 'TN'}
+                  {[profile?.district, profile?.state].filter(Boolean).join(', ')}
                 </Text>
               </View>
-            </FadeInView>
+            )}
           </LinearGradient>
-        </Animated.View>
-
-        {/* Stats Section */}
-        <View style={styles.statsContainer}>
-          <StatCard
-            icon="🏪"
-            value={stats.totalVendors || 0}
-            label="Vendors"
-            color={colors.primary}
-            delay={0}
-          />
-          <StatCard
-            icon="🚚"
-            value={stats.activeDeliveries || 0}
-            label="Active"
-            color={colors.tertiary}
-            delay={100}
-          />
-          <StatCard
-            icon="📍"
-            value={stats.nearbyDeliveries || 0}
-            label="Nearby"
-            color={colors.accent}
-            delay={200}
-          />
-        </View>
+        </FadeInView>
 
         {/* Quick Actions */}
-        <FadeInView delay={300} style={styles.section}>
+        <FadeInView delay={150} style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.actionsGrid}>
             <QuickActionButton
@@ -313,61 +263,60 @@ const CustomerDashboard = ({ onNavigate }) => {
               delay={0}
             />
             <QuickActionButton
+              icon="📦"
+              label="My Shipments"
+              color={colors.secondary}
+              onPress={() => onNavigate?.('myShipments')}
+              delay={50}
+            />
+            <QuickActionButton
               icon="💬"
               label="Chat"
               color={colors.accent}
               onPress={() => onNavigate?.('chat')}
-              delay={50}
+              delay={100}
             />
             <QuickActionButton
               icon="👤"
               label="Profile"
               color={colors.tertiary}
               onPress={() => onNavigate?.('profile')}
-              delay={100}
-            />
-            <QuickActionButton
-              icon="📦"
-              label="Orders"
-              color={colors.secondary}
-              onPress={() => onNavigate?.('viewGoods')}
               delay={150}
             />
           </View>
         </FadeInView>
 
-        {/* Active Deliveries */}
+        {/* My Active Shipments */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>🚚 Deliveries Near You</Text>
-            {nearbyExports.length > 0 && (
-              <TouchableOpacity onPress={() => onNavigate?.('viewGoods')}>
+            <Text style={styles.sectionTitle}>🚚 My Active Shipments</Text>
+            {activeShipments.length > 0 && (
+              <TouchableOpacity onPress={() => onNavigate?.('myShipments')}>
                 <Text style={styles.seeAllLink}>See All</Text>
               </TouchableOpacity>
             )}
           </View>
 
-          {nearbyExports.length > 0 ? (
-            nearbyExports.slice(0, 3).map((item, index) => (
-              <DeliveryCard
-                key={item._id || index}
-                item={item}
-                onTrack={handleTrack}
-                delay={index * 100}
-              />
-            ))
+          {shipmentsError ? (
+            <ThemedCard variant="outlined" style={styles.emptyCard}>
+              <Text style={styles.emptyIcon}>⚠️</Text>
+              <Text style={styles.emptySubtext}>{shipmentsError}</Text>
+              <TouchableOpacity style={styles.browseButton} onPress={onRefresh}>
+                <Text style={styles.browseButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </ThemedCard>
+          ) : activeShipments.length > 0 ? (
+            activeShipments
+              .slice(0, 5)
+              .map((item, index) => (
+                <ActiveShipmentCard key={item._id} item={item} onPress={handleOpenShipment} delay={index * 80} />
+              ))
           ) : (
-            <FadeInView delay={400}>
+            <FadeInView delay={200}>
               <ThemedCard variant="outlined" style={styles.emptyCard}>
                 <Text style={styles.emptyIcon}>📭</Text>
-                <Text style={styles.emptyTitle}>No Active Deliveries</Text>
-                <Text style={styles.emptySubtext}>
-                  Check back later for updates on deliveries in your area
-                </Text>
-                <TouchableOpacity
-                  style={styles.browseButton}
-                  onPress={() => onNavigate?.('viewGoods')}
-                >
+                <Text style={styles.emptyTitle}>No active shipments.</Text>
+                <TouchableOpacity style={styles.browseButton} onPress={() => onNavigate?.('viewGoods')}>
                   <Text style={styles.browseButtonText}>Browse Available Goods</Text>
                 </TouchableOpacity>
               </ThemedCard>
@@ -375,19 +324,54 @@ const CustomerDashboard = ({ onNavigate }) => {
           )}
         </View>
 
-        {/* Tips Card */}
-        <FadeInView delay={500} style={styles.section}>
-          <ThemedCard variant="gradient" style={styles.tipsCard}>
-            <Text style={styles.tipsIcon}>💡</Text>
-            <Text style={styles.tipsTitle}>Pro Tip</Text>
-            <Text style={styles.tipsText}>
-              Enable notifications to get real-time updates about your deliveries!
-            </Text>
-          </ThemedCard>
-        </FadeInView>
+        {/* Recent Shipments */}
+        {!shipmentsError && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>🕘 Recent Shipments</Text>
+            {recentShipments.length > 0 ? (
+              <ThemedCard variant="elevated" style={styles.recentCard}>
+                {recentShipments.map((item, index) => (
+                  <View key={item._id}>
+                    <RecentShipmentRow item={item} onPress={handleOpenShipment} />
+                    {index < recentShipments.length - 1 && <View style={styles.rowDivider} />}
+                  </View>
+                ))}
+              </ThemedCard>
+            ) : (
+              <Text style={styles.emptyInlineText}>No recent shipment activity yet.</Text>
+            )}
+          </View>
+        )}
+
+        {/* Notifications */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>🔔 Notifications</Text>
+            {notifications.length > 0 && (
+              <TouchableOpacity onPress={() => onNavigate?.('notifications')}>
+                <Text style={styles.seeAllLink}>See All</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {notificationsError ? (
+            <Text style={styles.emptyInlineText}>{notificationsError}</Text>
+          ) : recentNotifications.length > 0 ? (
+            <ThemedCard variant="elevated" style={styles.recentCard}>
+              {recentNotifications.map((item, index) => (
+                <View key={item._id}>
+                  <NotificationRow item={item} onPress={() => onNavigate?.('notifications')} />
+                  {index < recentNotifications.length - 1 && <View style={styles.rowDivider} />}
+                </View>
+              ))}
+            </ThemedCard>
+          ) : (
+            <Text style={styles.emptyInlineText}>No notifications yet.</Text>
+          )}
+        </View>
 
         <View style={styles.bottomPadding} />
-      </Animated.ScrollView>
+      </ScrollView>
     </View>
   );
 };
@@ -409,25 +393,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.background.primary,
   },
-  loadingIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: colors.successBg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  loadingEmoji: {
-    fontSize: 40,
-  },
   loadingText: {
     ...typography.body,
     color: colors.text.muted,
+    marginTop: spacing.md,
   },
   welcomeSection: {
     paddingTop: spacing.xl,
-    paddingBottom: spacing.xxl + spacing.lg,
+    paddingBottom: spacing.xl,
     paddingHorizontal: spacing.lg,
   },
   greeting: {
@@ -457,36 +430,6 @@ const styles = StyleSheet.create({
     ...typography.bodySmall,
     color: colors.text.light,
   },
-  statsContainer: {
-    flexDirection: 'row',
-    marginHorizontal: spacing.md,
-    marginTop: -spacing.xl - spacing.md,
-  },
-  statCard: {
-    flex: 1,
-    marginHorizontal: spacing.xs,
-    borderRadius: borderRadius.lg,
-    borderLeftWidth: 4,
-    overflow: 'hidden',
-    ...shadows.md,
-  },
-  statGradient: {
-    backgroundColor: colors.background.card,
-    padding: spacing.md,
-    alignItems: 'center',
-  },
-  statIcon: {
-    fontSize: 24,
-    marginBottom: spacing.sm,
-  },
-  statValue: {
-    ...typography.stat,
-  },
-  statLabel: {
-    ...typography.caption,
-    color: colors.text.muted,
-    marginTop: spacing.xxs,
-  },
   section: {
     paddingHorizontal: spacing.md,
     marginTop: spacing.lg,
@@ -500,6 +443,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     ...typography.h3,
     color: colors.text.primary,
+    marginBottom: spacing.md,
   },
   seeAllLink: {
     ...typography.bodySmall,
@@ -512,7 +456,7 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     alignItems: 'center',
-    width: (SCREEN_WIDTH - spacing.md * 2 - spacing.sm * 3) / 4,
+    flex: 1,
   },
   actionIconContainer: {
     width: 56,
@@ -556,7 +500,7 @@ const styles = StyleSheet.create({
   deliveryHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   productIcon: {
     width: 48,
@@ -582,68 +526,13 @@ const styles = StyleSheet.create({
     color: colors.text.muted,
     marginTop: 2,
   },
-  routeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.background.secondary,
-    padding: spacing.sm,
-    borderRadius: borderRadius.md,
-    marginBottom: spacing.md,
+  metaRow: {
+    marginTop: spacing.xs,
   },
-  routePoint: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  routeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: spacing.sm,
-  },
-  routeText: {
+  metaText: {
     ...typography.bodySmall,
     color: colors.text.secondary,
-    flex: 1,
-  },
-  routeLine: {
-    width: 40,
-    alignItems: 'center',
-  },
-  routeLineDashed: {
-    width: 30,
-    height: 2,
-    backgroundColor: colors.border.medium,
-    borderRadius: 1,
-  },
-  driverContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  driverInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  driverIcon: {
-    fontSize: 16,
-    marginRight: spacing.sm,
-  },
-  driverName: {
-    ...typography.bodySmall,
-    color: colors.text.secondary,
-  },
-  trackButton: {
-    borderRadius: borderRadius.round,
-    overflow: 'hidden',
-  },
-  trackButtonGradient: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  trackButtonText: {
-    ...typography.buttonSmall,
-    color: colors.text.light,
+    marginTop: 2,
   },
   emptyCard: {
     padding: spacing.xl,
@@ -664,6 +553,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: spacing.lg,
   },
+  emptyInlineText: {
+    ...typography.body,
+    color: colors.text.muted,
+    textAlign: 'center',
+    paddingVertical: spacing.lg,
+  },
   browseButton: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
@@ -674,23 +569,61 @@ const styles = StyleSheet.create({
     ...typography.buttonSmall,
     color: colors.primary,
   },
-  tipsCard: {
+  recentCard: {
+    padding: 0,
+    overflow: 'hidden',
+  },
+  recentRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: spacing.lg,
+    padding: spacing.md,
   },
-  tipsIcon: {
-    fontSize: 32,
-    marginBottom: spacing.sm,
+  recentInfo: {
+    flex: 1,
+    marginRight: spacing.sm,
   },
-  tipsTitle: {
-    ...typography.h4,
-    color: colors.text.light,
-    marginBottom: spacing.xs,
+  recentName: {
+    ...typography.bodyMedium,
+    color: colors.text.primary,
   },
-  tipsText: {
-    ...typography.bodySmall,
-    color: 'rgba(255, 255, 255, 0.9)',
-    textAlign: 'center',
+  recentVendor: {
+    ...typography.caption,
+    color: colors.text.muted,
+    marginTop: 2,
+  },
+  rowDivider: {
+    height: 1,
+    backgroundColor: colors.border.light,
+    marginHorizontal: spacing.md,
+  },
+  notifRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+    marginRight: spacing.sm,
+  },
+  notifTextWrap: {
+    flex: 1,
+  },
+  notifTitle: {
+    ...typography.bodyMedium,
+    color: colors.text.secondary,
+  },
+  notifTitleUnread: {
+    color: colors.text.primary,
+    fontWeight: '700',
+  },
+  notifMessage: {
+    ...typography.caption,
+    color: colors.text.muted,
+    marginTop: 2,
   },
   bottomPadding: {
     height: spacing.xxl,

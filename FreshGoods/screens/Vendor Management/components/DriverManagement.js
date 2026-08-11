@@ -15,6 +15,9 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -29,7 +32,7 @@ import {
 } from '../../theme';
 import ThemedCard from '../../components/ThemedCard';
 import ThemedButton from '../../components/ThemedButton';
-import { SlideInView, FadeInView, AnimatedPressable } from '../../components/AnimatedComponents';
+import { SlideInView, FadeInView } from '../../components/AnimatedComponents';
 
 // ═══════════════════════════════════════════════════════════════════
 // DRIVER CARD COMPONENT
@@ -85,13 +88,34 @@ const DriverCard = ({ driver, onRemove, index }) => (
 );
 
 // ═══════════════════════════════════════════════════════════════════
-// ADD DRIVER MODAL
+// ADD DRIVER MODAL — creates a brand-new Driver account owned by this
+// vendor (POST /api/vendor/drivers). There is no "pick from every driver
+// in the system" list anymore: a Driver only exists once a Vendor creates
+// it here, so it is exclusively owned from the start.
 // ═══════════════════════════════════════════════════════════════════
-const AddDriverModal = ({ visible, onClose, allDrivers, onSelect, search, onSearch }) => {
-  const filteredDrivers = allDrivers.filter(driver =>
-    driver.name?.toLowerCase().includes(search.toLowerCase()) ||
-    driver._id?.includes(search)
-  );
+const emptyForm = { name: '', username: '', email: '', mobile: '', password: '', licenseNo: '', state: '', district: '' };
+
+const AddDriverModal = ({ visible, onClose, onCreate, creating }) => {
+  const [form, setForm] = useState(emptyForm);
+
+  useEffect(() => {
+    if (visible) setForm(emptyForm);
+  }, [visible]);
+
+  const setField = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
+
+  const handleSubmit = () => {
+    if (!form.name.trim() || !form.username.trim() || !form.email.trim() || !form.mobile.trim()
+      || !form.password || !form.licenseNo.trim() || !form.state.trim() || !form.district.trim()) {
+      Alert.alert('Missing information', 'All fields are required.');
+      return;
+    }
+    if (form.password.length < 6) {
+      Alert.alert('Weak password', 'Password must be at least 6 characters.');
+      return;
+    }
+    onCreate(form);
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -106,44 +130,31 @@ const AddDriverModal = ({ visible, onClose, allDrivers, onSelect, search, onSear
             <View style={{ width: 40 }} />
           </View>
 
-          {/* Search */}
-          <View style={styles.searchContainer}>
-            <Text style={styles.searchIcon}>🔍</Text>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search by name or ID..."
-              placeholderTextColor={colors.text.muted}
-              value={search}
-              onChangeText={onSearch}
-            />
-          </View>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+            <ScrollView style={styles.formContainer} keyboardShouldPersistTaps="handled">
+              <Text style={styles.formHint}>
+                Creates a new driver account under your team. Share the username and password with your driver.
+              </Text>
+              <TextInput style={styles.formInput} placeholder="Full name" placeholderTextColor={colors.text.muted} value={form.name} onChangeText={setField('name')} />
+              <TextInput style={styles.formInput} placeholder="Username" placeholderTextColor={colors.text.muted} value={form.username} onChangeText={setField('username')} autoCapitalize="none" />
+              <TextInput style={styles.formInput} placeholder="Email" placeholderTextColor={colors.text.muted} value={form.email} onChangeText={setField('email')} keyboardType="email-address" autoCapitalize="none" />
+              <TextInput style={styles.formInput} placeholder="Mobile number" placeholderTextColor={colors.text.muted} value={form.mobile} onChangeText={setField('mobile')} keyboardType="phone-pad" />
+              <TextInput style={styles.formInput} placeholder="Temporary password" placeholderTextColor={colors.text.muted} value={form.password} onChangeText={setField('password')} secureTextEntry />
+              <TextInput style={styles.formInput} placeholder="License number" placeholderTextColor={colors.text.muted} value={form.licenseNo} onChangeText={setField('licenseNo')} />
+              <TextInput style={styles.formInput} placeholder="State" placeholderTextColor={colors.text.muted} value={form.state} onChangeText={setField('state')} />
+              <TextInput style={styles.formInput} placeholder="District" placeholderTextColor={colors.text.muted} value={form.district} onChangeText={setField('district')} />
 
-          {/* Driver List */}
-          <FlatList
-            data={filteredDrivers}
-            keyExtractor={(item) => item._id}
-            renderItem={({ item, index }) => (
-              <AnimatedPressable onPress={() => onSelect(item._id)}>
-                <View style={styles.modalDriverItem}>
-                  <View style={styles.modalDriverAvatar}>
-                    <Text style={styles.modalAvatarText}>
-                      {item.name?.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                  <View style={styles.modalDriverInfo}>
-                    <Text style={styles.modalDriverName}>{item.name}</Text>
-                    <Text style={styles.modalDriverSub}>{item.mobileNo}</Text>
-                  </View>
-                  <Text style={styles.addIcon}>+</Text>
-                </View>
-              </AnimatedPressable>
-            )}
-            ListEmptyComponent={
-              <View style={styles.emptyList}>
-                <Text style={styles.emptyText}>No drivers found</Text>
-              </View>
-            }
-          />
+              <ThemedButton
+                title={creating ? 'Creating...' : 'Create Driver'}
+                variant="gradient"
+                onPress={handleSubmit}
+                loading={creating}
+                disabled={creating}
+                fullWidth
+                style={{ marginTop: spacing.md, marginBottom: spacing.xl }}
+              />
+            </ScrollView>
+          </KeyboardAvoidingView>
         </View>
       </View>
     </Modal>
@@ -157,16 +168,16 @@ const DriverManagement = () => {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [vendorId, setVendorId] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [allDrivers, setAllDrivers] = useState([]);
-  const [search, setSearch] = useState('');
+  const [creating, setCreating] = useState(false);
 
+  // Vendor identity for every request below comes from the JWT on the
+  // server side (req.user.id) — nothing here is sent as a trusted vendorId,
+  // this AsyncStorage value is only used for local display/state, never
+  // passed to an API call.
   const fetchDrivers = useCallback(async () => {
     try {
-      const id = await AsyncStorage.getItem('userId');
-      setVendorId(id);
-      const res = await api.get(`/api/vendor/all?vendorId=${id}`);
+      const res = await api.get('/api/vendor/all');
       setDrivers(res.data || []);
     } catch (err) {
       console.error('Error fetching vendor drivers:', err);
@@ -176,27 +187,17 @@ const DriverManagement = () => {
     }
   }, []);
 
-  const fetchAllDrivers = async () => {
+  const handleCreateDriver = async (form) => {
+    setCreating(true);
     try {
-      const res = await api.get('/api/vendor/available-drivers');
-      setAllDrivers(res.data || []);
-    } catch (err) {
-      console.error('Error fetching all drivers:', err);
-    }
-  };
-
-  const handleAddDriver = async (driverId) => {
-    try {
-      await api.post('/api/vendor/add-driver', {
-        vendorId,
-        driverId,
-      });
+      await api.post('/api/vendor/drivers', form);
       setModalVisible(false);
-      setSearch('');
       fetchDrivers();
     } catch (err) {
-      const msg = err.response?.data?.error || 'Failed to add driver';
+      const msg = err.response?.data?.error || 'Failed to create driver';
       Alert.alert('Error', msg);
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -211,10 +212,7 @@ const DriverManagement = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await api.post('/api/vendor/remove-driver', {
-                vendorId,
-                driverId,
-              });
+              await api.post('/api/vendor/remove-driver', { driverId });
               fetchDrivers();
             } catch (err) {
               Alert.alert('Error', 'Failed to remove driver');
@@ -298,10 +296,7 @@ const DriverManagement = () => {
       {/* FAB */}
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => {
-          fetchAllDrivers();
-          setModalVisible(true);
-        }}
+        onPress={() => setModalVisible(true)}
         activeOpacity={0.8}
       >
         <LinearGradient
@@ -315,14 +310,9 @@ const DriverManagement = () => {
       {/* Add Driver Modal */}
       <AddDriverModal
         visible={modalVisible}
-        onClose={() => {
-          setModalVisible(false);
-          setSearch('');
-        }}
-        allDrivers={allDrivers}
-        onSelect={handleAddDriver}
-        search={search}
-        onSearch={setSearch}
+        onClose={() => setModalVisible(false)}
+        onCreate={handleCreateDriver}
+        creating={creating}
       />
     </View>
   );
@@ -517,68 +507,25 @@ const styles = StyleSheet.create({
     ...typography.h3,
     color: colors.text.primary,
   },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.background.secondary,
-    borderRadius: borderRadius.lg,
-    margin: spacing.md,
+  formContainer: {
     paddingHorizontal: spacing.md,
   },
-  searchIcon: {
-    fontSize: 16,
-    marginRight: spacing.sm,
+  formHint: {
+    ...typography.bodySmall,
+    color: colors.text.muted,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
   },
-  searchInput: {
-    flex: 1,
+  formInput: {
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
     ...typography.body,
     color: colors.text.primary,
-    paddingVertical: spacing.md,
-  },
-  modalDriverItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border.light,
-  },
-  modalDriverAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: spacing.md,
-  },
-  modalAvatarText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.text.light,
-  },
-  modalDriverInfo: {
-    flex: 1,
-  },
-  modalDriverName: {
-    ...typography.bodyMedium,
-    color: colors.text.primary,
-  },
-  modalDriverSub: {
-    ...typography.caption,
-    color: colors.text.muted,
-  },
-  addIcon: {
-    fontSize: 24,
-    color: colors.primary,
-    fontWeight: 'bold',
-  },
-  emptyList: {
-    padding: spacing.xl,
-    alignItems: 'center',
-  },
-  emptyText: {
-    ...typography.body,
-    color: colors.text.muted,
+    borderWidth: 1,
+    borderColor: colors.border.light,
+    marginBottom: spacing.sm,
   },
 });
 

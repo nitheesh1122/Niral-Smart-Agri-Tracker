@@ -68,6 +68,21 @@ export default function SignupScreen() {
     }
   }, [preSelectedRole]);
 
+  // Defense in depth: RoleSelectionScreen already hides Driver in signup
+  // mode, but this screen can in principle be reached directly with
+  // selectedRole:'Driver' (deep link, stale nav state). The backend also
+  // rejects role:'Driver' at POST /api/signup — this just avoids showing a
+  // form that would only fail at submit time.
+  useEffect(() => {
+    if (selectedRole === 'Driver') {
+      Alert.alert(
+        'Driver accounts are vendor-created',
+        'Ask your vendor to add you as a driver — Driver accounts cannot self-register.',
+        [{ text: 'OK', onPress: () => navigation.navigate('RoleSelection', { mode: 'signup' }) }]
+      );
+    }
+  }, [selectedRole, navigation]);
+
   const handleNextPage = () => setPage(prev => prev + 1);
   const handlePrevPage = () => setPage(prev => prev - 1);
 

@@ -27,6 +27,16 @@ const driverSchema = new mongoose.Schema({
   state: { type: String, required: true },
   district: { type: String, required: true },
 
+  // The single Vendor who created/owns this driver (POST /api/vendor/drivers
+  // — see vendorRoutes.js). Not `required` at the schema level: a small
+  // number of pre-existing accounts were created before this field existed
+  // (self-registered, then optionally claimed into a Vendor's `drivers[]`
+  // array under the old many-to-many model) and are left untouched rather
+  // than migrated; enforcing "always has a vendor" here would break a plain
+  // `.save()` on one of those legacy documents (e.g. updating expoPushToken).
+  // Every driver created going forward always has this set.
+  vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', default: null },
+
   // ✅ All past work assignments
   work: {
     type: [workSchema],
@@ -55,6 +65,7 @@ const driverSchema = new mongoose.Schema({
 // Database indexes for faster queries
 // No separate .index({username:1}) / .index({email:1}) — `unique: true`
 // on those fields above already creates that index.
+driverSchema.index({ vendor: 1 });
 
 // Hash password before saving
 driverSchema.pre('save', async function (next) {

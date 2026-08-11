@@ -13,7 +13,7 @@ import CustomerDashboard from './components/CustomerHomePlaceholder';
 import CustomerProfile from './components/CustomerProfile';
 import CustomerViewGoods from './components/CustomerViewGoods';
 import CustomerMyShipments from './components/CustomerMyShipments';
-import CustomerTrackingScreen from './components/CustomerTrackingScreen';
+import CustomerShipmentDetails from './components/CustomerShipmentDetails';
 import VendorSelectList from './components/VendorSelectList';
 import CustomerChat from './components/CustomerChatPlaceholder';
 
@@ -66,7 +66,7 @@ const CustomerHome = () => {
 
   // Get page title
   const getPageTitle = () => {
-    if (activeSection === 'tracking') return 'Track Shipment';
+    if (activeSection === 'shipmentDetails') return 'Shipment Details';
     if (activeSection === 'chat' && vendorName) return `Chat with ${vendorName}`;
     const item = MENU_ITEMS.find((m) => m.id === activeSection);
     return item ? item.label : 'Home';
@@ -74,17 +74,17 @@ const CustomerHome = () => {
 
   // Handle navigation from dashboard
   const handleNavigate = (section, data) => {
-    if (section === 'tracking' && data) {
+    if (section === 'shipmentDetails' && data) {
       setTrackingData(data);
-      setActiveSection('tracking');
+      setActiveSection('shipmentDetails');
     } else {
       setActiveSection(section);
     }
   };
 
-  // Handle back in chat or tracking
+  // Handle back in chat or shipment details
   const handleBack = () => {
-    if (activeSection === 'tracking') {
+    if (activeSection === 'shipmentDetails') {
       setTrackingData(null);
       setActiveSection('home');
     } else if (vendorId) {
@@ -104,20 +104,20 @@ const CustomerHome = () => {
       case 'viewGoods':
         return (
           <CustomerViewGoods
-            onTrack={(exportData) => handleNavigate('tracking', { exportData })}
+            onTrack={(exportData) => handleNavigate('shipmentDetails', { exportData })}
           />
         );
 
       case 'myShipments':
         return (
           <CustomerMyShipments
-            onTrack={(exportData) => handleNavigate('tracking', { exportData })}
+            onTrack={(exportData) => handleNavigate('shipmentDetails', { exportData })}
           />
         );
 
-      case 'tracking':
+      case 'shipmentDetails':
         return (
-          <CustomerTrackingScreen
+          <CustomerShipmentDetails
             exportId={trackingData?.exportId}
             exportData={trackingData?.exportData}
             onBack={handleBack}
@@ -157,7 +157,7 @@ const CustomerHome = () => {
   };
 
   const showBackButton =
-    activeSection === 'tracking' ||
+    activeSection === 'shipmentDetails' ||
     (activeSection === 'chat' && vendorId);
 
   return (

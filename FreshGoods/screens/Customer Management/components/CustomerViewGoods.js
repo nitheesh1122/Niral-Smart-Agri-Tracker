@@ -172,11 +172,9 @@ const CustomerViewGoods = ({ onTrack }) => {
       setError(null);
     } catch (err) {
       console.error('Error fetching exports:', err);
-      setError('Failed to load exports');
-      // Demo data fallback
-      const demoData = [];
-      setExports(demoData);
-      setFilteredExports(demoData);
+      setError('Unable to load available goods. Try again.');
+      setExports([]);
+      setFilteredExports([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -322,13 +320,20 @@ const CustomerViewGoods = ({ onTrack }) => {
         }
         ListEmptyComponent={
           <FadeInView style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>📭</Text>
-            <Text style={styles.emptyTitle}>No Shipments Found</Text>
+            <Text style={styles.emptyIcon}>{error ? '⚠️' : '📭'}</Text>
+            <Text style={styles.emptyTitle}>{error ? 'Unable to load goods' : 'No Shipments Found'}</Text>
             <Text style={styles.emptySubtext}>
-              {searchQuery || activeFilter !== 'all'
-                ? 'Try adjusting your filters'
-                : 'Pull down to refresh'}
+              {error
+                ? error
+                : searchQuery || activeFilter !== 'all'
+                  ? 'Try adjusting your filters'
+                  : 'Pull down to refresh'}
             </Text>
+            {error && (
+              <TouchableOpacity style={styles.retryButton} onPress={fetchExports}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            )}
           </FadeInView>
         }
       />
@@ -579,6 +584,18 @@ const styles = StyleSheet.create({
   emptySubtext: {
     ...typography.body,
     color: colors.text.muted,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.primaryLight + '20',
+    borderRadius: borderRadius.round,
+  },
+  retryButtonText: {
+    ...typography.buttonSmall,
+    color: colors.primary,
   },
 });
 

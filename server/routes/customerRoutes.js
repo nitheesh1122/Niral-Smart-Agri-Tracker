@@ -11,12 +11,17 @@ const Export = require('../models/shipmentModel');
 const ShipmentEvent = require('../models/shipmentEventModel');
 const { STATUSES } = require('../utils/shipmentStateMachine');
 
-// Event types a customer is allowed to see on a shipment timeline — no
-// driver-rejection reasons, no vendor-only reassignment metadata.
+// Event types a customer is allowed to see on a shipment timeline. The
+// query below already .select()s only eventType + timestamp, so even
+// DRIVER_REJECTED never leaks the rejection reason (metadata) or the
+// driver's identity (actor/actorModel) — just that the step happened and
+// when (Stage 8 Phase 7: customer must see the rejection branch of the
+// timeline, not just the happy path).
 const CUSTOMER_VISIBLE_EVENT_TYPES = [
   'SHIPMENT_CREATED',
   'DRIVER_ASSIGNED',
   'DRIVER_ACCEPTED',
+  'DRIVER_REJECTED',
   'DELIVERY_STARTED',
   'DELIVERY_COMPLETED',
 ];

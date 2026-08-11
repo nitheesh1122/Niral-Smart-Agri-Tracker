@@ -5,7 +5,7 @@
  * CustomerViewGoods, which is an unfiltered browse-all-active-deliveries
  * list. Backed by GET /api/customer/my-shipments.
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -27,6 +27,25 @@ import {
 } from '../../theme';
 import ThemedCard from '../../components/ThemedCard';
 import { SlideInView, FadeInView } from '../../components/AnimatedComponents';
+
+const FILTERS = [
+  { key: 'all', label: 'All', statuses: null },
+  { key: 'active', label: 'Active', statuses: ['ASSIGNED', 'ACCEPTED'] },
+  { key: 'in_transit', label: 'In Transit', statuses: ['IN_TRANSIT'] },
+  { key: 'completed', label: 'Completed', statuses: ['COMPLETED'] },
+  { key: 'cancelled', label: 'Cancelled', statuses: ['CANCELLED'] },
+  { key: 'rejected', label: 'Rejected', statuses: ['REJECTED'] },
+];
+
+const FilterTab = ({ label, isActive, onPress }) => (
+  <TouchableOpacity
+    style={[styles.filterTab, isActive && styles.filterTabActive]}
+    onPress={onPress}
+    activeOpacity={0.7}
+  >
+    <Text style={[styles.filterTabText, isActive && styles.filterTabTextActive]}>{label}</Text>
+  </TouchableOpacity>
+);
 
 const ShipmentCard = ({ item, onPress, index }) => {
   const statusColor = getStatusColor(item.status);
@@ -59,6 +78,7 @@ const CustomerMyShipments = ({ onTrack }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [shipments, setShipments] = useState([]);
   const [error, setError] = useState(null);
+  const [activeFilter, setActiveFilter] = useState('all');
 
   const fetchShipments = useCallback(async () => {
     try {
@@ -84,13 +104,17 @@ const CustomerMyShipments = ({ onTrack }) => {
   };
 
   const handlePress = (item) => {
-    if (!item.trackingAllowed) {
-      // Still navigate — CustomerTrackingScreen re-verifies with the
-      // server and shows the "tracking not available" state itself,
-      // rather than duplicating that decision here.
-    }
+    // Always navigate — CustomerShipmentDetails re-verifies tracking with
+    // the server and shows the "tracking not available" state itself,
+    // rather than duplicating that decision here.
     onTrack?.(item);
   };
+
+  const filteredShipments = useMemo(() => {
+    const filter = FILTERS.find((f) => f.key === activeFilter);
+    if (!filter || !filter.statuses) return shipments;
+    return shipments.filter((s) => filter.statuses.includes(s.status));
+  }, [shipments, activeFilter]);
 
   if (loading) {
     return (
@@ -103,8 +127,21 @@ const CustomerMyShipments = ({ onTrack }) => {
 
   return (
     <View style={styles.container}>
+      <View style={styles.filterContainer}>
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={FILTERS}
+          keyExtractor={(f) => f.key}
+          renderItem={({ item: f }) => (
+            <FilterTab label={f.label} isActive={activeFilter === f.key} onPress={() => setActiveFilter(f.key)} />
+          )}
+          contentContainerStyle={styles.filterList}
+        />
+      </View>
+
       <FlatList
-        data={shipments}
+        data={filteredShipments}
         keyExtractor={(item) => item._id}
         renderItem={({ item, index }) => (
           <ShipmentCard item={item} index={index} onPress={handlePress} />
@@ -116,9 +153,13 @@ const CustomerMyShipments = ({ onTrack }) => {
         ListEmptyComponent={
           <FadeInView style={styles.emptyContainer}>
             <Text style={styles.emptyIcon}>📭</Text>
-            <Text style={styles.emptyTitle}>No shipments yet</Text>
+            <Text style={styles.emptyTitle}>
+              {error ? 'Unable to load shipments' : shipments.length > 0 ? 'No shipments match this filter' : 'No shipments yet'}
+            </Text>
             <Text style={styles.emptySubtext}>
-              {error || "Shipments a vendor associates with you will show up here."}
+              {error || (shipments.length > 0
+                ? 'Try a different filter above.'
+                : "Shipments a vendor associates with you will show up here.")}
             </Text>
           </FadeInView>
         }
@@ -133,6 +174,31 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background.primary,
+  },
+  filterContainer: {
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  filterList: {
+    paddingHorizontal: spacing.md,
+  },
+  filterTab: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginRight: spacing.sm,
+    borderRadius: borderRadius.round,
+    backgroundColor: colors.background.secondary,
+  },
+  filterTabActive: {
+    backgroundColor: colors.primary,
+  },
+  filterTabText: {
+    ...typography.bodySmall,
+    color: colors.text.secondary,
+  },
+  filterTabTextActive: {
+    color: colors.text.light,
+    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,

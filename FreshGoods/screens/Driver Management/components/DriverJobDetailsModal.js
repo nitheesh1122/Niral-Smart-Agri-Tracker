@@ -29,6 +29,7 @@ import ThemedCard from '../../components/ThemedCard';
 import ThemedButton from '../../components/ThemedButton';
 import { getFreshness, formatMinutesAgo, FRESHNESS } from '../../utils/freshness';
 import { getConditionMeta, getRiskLabel } from '../../utils/condition';
+import DriverRerouteScreen from './placeholdersubcomponents/DriverRerouteScreen';
 
 const EVENT_LABELS = {
   SHIPMENT_CREATED: 'Shipment created',
@@ -58,6 +59,8 @@ const DriverJobDetailsModal = ({ item, onClose, onChanged, onChatWithVendor }) =
   const [actionLoading, setActionLoading] = useState(false);
   const [showRejectBox, setShowRejectBox] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [reroute, setReroute] = useState(undefined); // undefined = loading, null = none
+  const [showReroute, setShowReroute] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -108,7 +111,20 @@ const DriverJobDetailsModal = ({ item, onClose, onChanged, onChatWithVendor }) =
     } else {
       setLocation(null);
     }
-  }, [job._id]);
+
+    if (job.status === 'IN_TRANSIT') {
+      (async () => {
+        try {
+          const res = await api.get(`/api/driver/export/${job._id}/reroute`);
+          setReroute(res.data);
+        } catch (err) {
+          setReroute(null);
+        }
+      })();
+    } else {
+      setReroute(null);
+    }
+  }, [job._id, job.status]);
 
   const handleCallVendor = () => {
     if (job.vendorId?.mobileNo) {
@@ -162,6 +178,19 @@ const DriverJobDetailsModal = ({ item, onClose, onChanged, onChatWithVendor }) =
         </View>
 
         <ScrollView style={styles.scroll}>
+          {/* Stage 12 — rescue reroute banner. Only shown when this job
+              actually has one; no-op for every ordinary delivery. */}
+          {reroute && reroute.status !== 'COMPLETED' && reroute.status !== 'CANCELLED' && (
+            <TouchableOpacity onPress={() => setShowReroute(true)}>
+              <View style={[styles.rerouteBanner, reroute.status === 'ISSUE_REPORTED' && styles.rerouteBannerIssue]}>
+                <Text style={styles.rerouteBannerTitle}>
+                  {reroute.status === 'DRIVER_NOTIFIED' ? '🚨 New Rescue Route Assigned' : reroute.status === 'ISSUE_REPORTED' ? '⚠ Issue reported — waiting on vendor' : '🚨 Rescue route in progress'}
+                </Text>
+                <Text style={styles.rerouteBannerHint}>Tap to view route{reroute.status === 'DRIVER_NOTIFIED' ? ' and acknowledge' : ''} →</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
           {/* Shipment */}
           <Text style={styles.sectionTitle}>Shipment</Text>
           <ThemedCard variant="outlined" style={styles.card}>
@@ -372,6 +401,26 @@ const DriverJobDetailsModal = ({ item, onClose, onChanged, onChatWithVendor }) =
           <View style={{ height: spacing.xxl }} />
         </ScrollView>
       </View>
+
+      {showReroute && (
+        <Modal visible animationType="slide" onRequestClose={() => setShowReroute(false)}>
+          <DriverRerouteScreen
+            exportId={job._id}
+            onBack={() => {
+              setShowReroute(false);
+              // Refresh the banner's status after acknowledging/reporting.
+              (async () => {
+                try {
+                  const res = await api.get(`/api/driver/export/${job._id}/reroute`);
+                  setReroute(res.data);
+                } catch {
+                  // leave previous state
+                }
+              })();
+            }}
+          />
+        </Modal>
+      )}
     </Modal>
   );
 };
@@ -394,6 +443,20 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, padding: spacing.md },
   sectionTitle: { ...typography.bodyMedium, color: colors.text.primary, marginTop: spacing.md, marginBottom: spacing.xs },
   card: { marginBottom: spacing.sm },
+  rerouteBanner: {
+    backgroundColor: colors.errorBg || 'rgba(220,53,69,0.1)',
+    borderWidth: 1,
+    borderColor: colors.error,
+    borderRadius: 12,
+    padding: spacing.sm + 4,
+    marginBottom: spacing.md,
+  },
+  rerouteBannerIssue: {
+    backgroundColor: colors.warningBg || 'rgba(245,158,11,0.1)',
+    borderColor: colors.warning,
+  },
+  rerouteBannerTitle: { ...typography.body, fontWeight: '700', color: colors.text.primary },
+  rerouteBannerHint: { ...typography.caption, color: colors.text.muted, marginTop: 4 },
   conditionBanner: {
     borderRadius: 12,
     borderWidth: 1,

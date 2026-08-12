@@ -12,6 +12,7 @@ const logShipmentEvent = require('../utils/logShipmentEvent');
 const { createNotification } = require('../services/notificationService');
 const notifyEligibleCustomers = require('../utils/notifyEligibleCustomers');
 const { evaluateShipmentCondition } = require('../services/conditionEngine');
+const rerouteService = require('../services/rerouteService');
 
 router.get('/export/driver/:driverId', async (req, res) => {
   try {
@@ -94,7 +95,15 @@ async function reverseGeocode(lat, lon, apiKey) {
 }
 
 async function getDistrictsBetween(start, end) {
-  const apiKey = '5b3ce3597851110001cf62483bea92698c8542d186907fabf996b9cd';
+  // Stage 12 Phase 1: this key previously lived as a literal here. Moved to
+  // ORS_API_KEY (server/.env) — the same variable server/services/
+  // routingService.js reads, so there is exactly one server-side ORS
+  // secret, not two. Never sent to any client.
+  const apiKey = process.env.ORS_API_KEY;
+  if (!apiKey) {
+    console.error('ORS_API_KEY is not configured; district lookup skipped.');
+    return [];
+  }
 
   const url = 'https://api.openrouteservice.org/v2/directions/driving-car/geojson';
   const coordinates = [[start.longitude, start.latitude], [end.longitude, end.latitude]];
@@ -312,6 +321,15 @@ router.put('/export/complete/:id', async (req, res) => {
       message: `${exp.itemName} has been delivered.`,
     });
 
+    // Stage 12 Phase 14: reuse this existing completion endpoint rather
+    // than building a second one. No-op (returns null immediately) for
+    // every shipment without an active reroute, so ordinary deliveries are
+    // completely unaffected — this only does anything when `exp` is a
+    // shipment that went through a confirmed rescue reroute.
+    await rerouteService.completeActiveReroute(exp, req.user.id).catch((err) => {
+      console.error('Failed to record rescue delivery completion:', err);
+    });
+
     res.json({ success: true, message: 'Export completed', export: updated });
   } catch (err) {
     console.error('Complete export error:', err);
@@ -459,6 +477,53 @@ router.get('/export/:id/events', async (req, res) => {
   } catch (err) {
     console.error('Error fetching shipment events:', err);
     res.status(500).json({ error: 'Failed to fetch shipment events' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Stage 12 — Smart Rerouting & Rescue Delivery (Driver side)
+// Vendor decides; Driver acknowledges and executes. There is no
+// business-level reject here — only "acknowledge" and "report an
+// operational issue" (server/services/rerouteService.js). Driver identity
+// always from req.user.id (JWT).
+// ═══════════════════════════════════════════════════════════════════
+
+function handleRerouteError(res, err, fallbackMessage) {
+  if (err instanceof rerouteService.RerouteError) {
+    return res.status(err.status).json({ error: err.message, code: err.code });
+  }
+  console.error(fallbackMessage, err);
+  return res.status(500).json({ error: fallbackMessage });
+}
+
+// GET /api/driver/export/:exportId/reroute — null if no reroute exists.
+router.get('/export/:exportId/reroute', async (req, res) => {
+  try {
+    const reroute = await rerouteService.getRerouteForDriver(req.user.id, req.params.exportId);
+    res.json(reroute);
+  } catch (err) {
+    handleRerouteError(res, err, 'Failed to fetch reroute');
+  }
+});
+
+// POST /api/driver/export/:exportId/reroute/acknowledge
+router.post('/export/:exportId/reroute/acknowledge', async (req, res) => {
+  try {
+    const reroute = await rerouteService.acknowledgeReroute(req.user.id, req.params.exportId);
+    res.json(reroute);
+  } catch (err) {
+    handleRerouteError(res, err, 'Failed to acknowledge reroute');
+  }
+});
+
+// POST /api/driver/export/:exportId/reroute/report-issue — body: { reason }
+router.post('/export/:exportId/reroute/report-issue', async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const reroute = await rerouteService.reportIssue(req.user.id, req.params.exportId, reason);
+    res.json(reroute);
+  } catch (err) {
+    handleRerouteError(res, err, 'Failed to report issue');
   }
 });
 

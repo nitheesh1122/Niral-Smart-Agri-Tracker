@@ -32,6 +32,11 @@ const notificationSchema = new mongoose.Schema({
       'RESCUE_SALE_AVAILABLE',
       'CUSTOMER_INTEREST',
       'RESCUE_BUYER_SELECTED',
+      // Stage 12 — emitted by server/services/rerouteService.js:
+      'REROUTE_ASSIGNED',
+      'REROUTE_ACKNOWLEDGED',
+      'REROUTE_ISSUE_REPORTED',
+      'RESCUE_DELIVERY_COMPLETED',
       // Reserved for a future stage — not emitted yet:
       'ROUTE_SUGGESTION',
     ],

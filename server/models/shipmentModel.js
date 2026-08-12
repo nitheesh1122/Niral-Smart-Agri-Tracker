@@ -71,6 +71,19 @@ const shipmentSchema = new mongoose.Schema({
   intermediateLocations: { type: [intermediateLocationSchema], default: [] },
   routes: { type: [String], default: [] },
 
+  // Stage 12 — additive only. `endLocation` above is NEVER overwritten by a
+  // rescue reroute; it remains the shipment's original, historical
+  // destination. This field is null until a Vendor confirms a rescue
+  // reroute (server/services/rerouteService.js), after which it holds the
+  // currently-approved rescue delivery point. Both can be read side by
+  // side — original vs. approved-rescue — for tracking/history/UI.
+  approvedRescueDestination: { type: locationSchema, default: null },
+  // Convenience pointer to the most recent RerouteRequest for this
+  // shipment (same "convenience ref, not a replacement" pattern already
+  // used by `device` above and by Vehicle.device / Device.vehicle) — the
+  // RerouteRequest document itself remains the authoritative record.
+  activeRerouteRequest: { type: mongoose.Schema.Types.ObjectId, ref: 'RerouteRequest', default: null },
+
   status: {
     type: String,
     enum: STATUS_VALUES,
@@ -91,7 +104,7 @@ const shipmentSchema = new mongoose.Schema({
 });
 
 shipmentSchema.pre('validate', function populateGeoMirror(next) {
-  for (const field of ['startLocation', 'endLocation']) {
+  for (const field of ['startLocation', 'endLocation', 'approvedRescueDestination']) {
     const loc = this[field];
     if (loc && typeof loc.latitude === 'number' && typeof loc.longitude === 'number') {
       loc.geo = { type: 'Point', coordinates: [loc.longitude, loc.latitude] };
@@ -132,12 +145,20 @@ shipmentSchema.methods.getNotifiableCustomerIds = function getNotifiableCustomer
  * before a shipment is sent to a customer. Used by every customer-facing
  * shipment route so "what the customer sees" has one definition instead of
  * being re-decided ad hoc per endpoint.
+ *
+ * Stage 12: also strips `approvedRescueDestination`/`activeRerouteRequest`.
+ * A rescue reroute's destination is the RESCUE BUYER's location — a
+ * different person from whoever is tracking this shipment as its original
+ * customer (if anyone). Passing it through here would leak one customer's
+ * delivery coordinates to another. Original `startLocation`/`endLocation`
+ * remain visible as before — those are this shipment's own route.
  */
 shipmentSchema.methods.toCustomerView = function toCustomerView() {
   const obj = this.toObject();
   const {
     costPrice, salePrice, driverSalary, instructions,
     trackingViewers, device, rejectionReason,
+    approvedRescueDestination, activeRerouteRequest,
     ...customerFacing
   } = obj;
   return customerFacing;

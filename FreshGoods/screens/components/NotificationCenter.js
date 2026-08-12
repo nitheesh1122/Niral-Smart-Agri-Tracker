@@ -37,6 +37,12 @@ const TYPE_TO_ICON_CATEGORY = {
     IOT_RISK_ALERT: 'alert',
     RESCUE_SALE_AVAILABLE: 'success',
     CUSTOMER_INTEREST: 'message',
+    RESCUE_BUYER_SELECTED: 'success',
+    // Stage 12:
+    REROUTE_ASSIGNED: 'delivery',
+    REROUTE_ACKNOWLEDGED: 'success',
+    REROUTE_ISSUE_REPORTED: 'alert',
+    RESCUE_DELIVERY_COMPLETED: 'success',
     ROUTE_SUGGESTION: 'delivery',
 };
 

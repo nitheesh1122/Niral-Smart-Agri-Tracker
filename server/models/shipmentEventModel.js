@@ -26,8 +26,18 @@ const shipmentEventSchema = new mongoose.Schema({
       'IOT_WARNING',
       'HIGH_RISK_DETECTED',
       'CONDITION_RECOVERED',
-      // Reserved for future stages — not emitted yet:
+      // Stage 11 — emitted by server/services/rescueService.js:
       'RESCUE_SALE_CREATED',
+      // Stage 12 — emitted by server/services/rerouteService.js:
+      'REROUTE_REQUESTED',
+      'REROUTE_CONFIRMED',
+      'DRIVER_NOTIFIED',
+      'DRIVER_ACKNOWLEDGED',
+      'DRIVER_ISSUE_REPORTED',
+      'RESCUE_DESTINATION_APPROVED',
+      'RESCUE_DELIVERY_COMPLETED',
+      'REROUTE_CANCELLED',
+      // Reserved for a future stage — not emitted yet:
       'ROUTE_SUGGESTED',
       'ROUTE_ACCEPTED',
       'ROUTE_DECLINED',

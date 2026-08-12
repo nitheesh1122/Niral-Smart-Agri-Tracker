@@ -23,6 +23,7 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme'
 import ThemedCard from '../../components/ThemedCard';
 import ThemedButton from '../../components/ThemedButton';
 import { getConditionMeta, getRiskLabel } from '../../utils/condition';
+import RerouteReviewModal from './vendorHomeComponents/RerouteReviewModal';
 
 const STATUS_COLORS = {
   DRAFT: colors.text.muted,
@@ -74,19 +75,32 @@ const BuyerRow = ({ buyer, onSelect, canSelect }) => (
   </View>
 );
 
+const REROUTE_STATUS_LABELS = {
+  VENDOR_CONFIRMED: 'Confirmed — notifying driver',
+  DRIVER_NOTIFIED: 'Driver notified — awaiting acknowledgement',
+  ACTIVE: 'Driver acknowledged — en route',
+  ISSUE_REPORTED: 'Driver reported an issue',
+  COMPLETED: 'Rescue delivery completed',
+  CANCELLED: 'Cancelled',
+};
+
 const RescueSaleDetailModal = ({ saleId, onClose, onChanged }) => {
   const [sale, setSale] = useState(undefined);
   const [buyers, setBuyers] = useState(undefined);
+  const [reroute, setReroute] = useState(undefined); // undefined = loading, null = none
   const [busy, setBusy] = useState(false);
+  const [showRouteReview, setShowRouteReview] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [saleRes, buyersRes] = await Promise.all([
+      const [saleRes, buyersRes, rerouteRes] = await Promise.all([
         api.get(`/api/vendor/rescue-sales/${saleId}`),
         api.get(`/api/vendor/rescue-sales/${saleId}/interested-buyers`),
+        api.get(`/api/vendor/rescue-sales/${saleId}/reroute`),
       ]);
       setSale(saleRes.data);
       setBuyers(buyersRes.data || []);
+      setReroute(rerouteRes.data);
     } catch (err) {
       Alert.alert('Error', 'Failed to load rescue sale details.');
       onClose();
@@ -183,6 +197,34 @@ const RescueSaleDetailModal = ({ saleId, onClose, onChanged }) => {
             )}
           </ThemedCard>
 
+          {/* Stage 12 — reroute planning, only once a buyer is selected. */}
+          {sale.selectedCustomer && (
+            <>
+              <Text style={styles.sectionTitle}>Rescue Delivery Route</Text>
+              <ThemedCard variant="outlined" style={styles.card}>
+                {reroute === undefined ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : reroute ? (
+                  <>
+                    <Text style={styles.detailLine}>{REROUTE_STATUS_LABELS[reroute.status] || reroute.status}</Text>
+                    <Text style={styles.detailLine}>{reroute.route.distanceKm} km · ETA {reroute.route.durationMinutes} min</Text>
+                    {reroute.status === 'ISSUE_REPORTED' && (
+                      <Text style={[styles.detailLine, { color: colors.warning }]}>Reason: {reroute.issueReason}</Text>
+                    )}
+                  </>
+                ) : sale.status === 'PUBLISHED' ? (
+                  <ThemedButton
+                    title="Plan Rescue Route"
+                    variant="gradient"
+                    onPress={() => setShowRouteReview(true)}
+                  />
+                ) : (
+                  <Text style={styles.emptyText}>This rescue sale is no longer active.</Text>
+                )}
+              </ThemedCard>
+            </>
+          )}
+
           {['DRAFT', 'PUBLISHED'].includes(sale.status) && (
             <ThemedButton
               title="Cancel Rescue Sale"
@@ -195,6 +237,18 @@ const RescueSaleDetailModal = ({ saleId, onClose, onChanged }) => {
           )}
         </ScrollView>
       </View>
+
+      {showRouteReview && (
+        <RerouteReviewModal
+          rescueSaleId={saleId}
+          onClose={() => setShowRouteReview(false)}
+          onConfirmed={() => {
+            setShowRouteReview(false);
+            load();
+            onChanged?.();
+          }}
+        />
+      )}
     </Modal>
   );
 };

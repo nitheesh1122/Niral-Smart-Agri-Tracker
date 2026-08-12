@@ -15,6 +15,7 @@ const { createNotification } = require('../services/notificationService');
 const notifyEligibleCustomers = require('../utils/notifyEligibleCustomers');
 const { evaluateShipmentCondition } = require('../services/conditionEngine');
 const rescueService = require('../services/rescueService');
+const rerouteService = require('../services/rerouteService');
 
 // Every route in this file is vendor-only. Scoped with router.use() rather
 // than at the server.js mount point, because serviceRequestRoutes.js shares
@@ -966,6 +967,13 @@ router.put('/rescue-sales/:id', async (req, res) => {
 router.post('/rescue-sales/:id/cancel', async (req, res) => {
   try {
     const sale = await rescueService.cancelRescueSale(req.user.id, req.params.id);
+    // Stage 12: an active reroute must never keep pointing at a cancelled
+    // sale. Composed here at the route layer (not inside rescueService.js)
+    // so Stage 11's service stays free of a circular dependency on
+    // rerouteService.js, which itself reuses rescueService.resolveVehicleLocation.
+    await rerouteService.cancelActiveRerouteForShipment(sale.shipment).catch((err) => {
+      console.error('Failed to cascade-cancel reroute for cancelled rescue sale:', err);
+    });
     res.json(sale);
   } catch (err) {
     handleRescueError(res, err, 'Failed to cancel rescue sale');
@@ -993,6 +1001,54 @@ router.post('/rescue-sales/:id/select-buyer', async (req, res) => {
     res.json(sale);
   } catch (err) {
     handleRescueError(res, err, 'Failed to select buyer');
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Stage 12 — Smart Rerouting & Rescue Delivery (Vendor side)
+// Nested under the RescueSale, since a reroute only ever exists once that
+// sale has a selected buyer. See server/services/rerouteService.js for the
+// full validation chain and server/services/routingService.js for the ORS
+// call. Vendor identity always from req.user.id (JWT) — never trusted from
+// the request body, matching every other route in this file.
+// ═══════════════════════════════════════════════════════════════════
+
+function handleRerouteError(res, err, fallbackMessage) {
+  if (err instanceof rerouteService.RerouteError) {
+    return res.status(err.status).json({ error: err.message, code: err.code });
+  }
+  console.error(fallbackMessage, err);
+  return res.status(500).json({ error: fallbackMessage });
+}
+
+// POST /api/vendor/rescue-sales/:id/route-preview — stateless, no DB write.
+router.post('/rescue-sales/:id/route-preview', async (req, res) => {
+  try {
+    const preview = await rerouteService.previewReroute(req.user.id, req.params.id);
+    res.json(preview);
+  } catch (err) {
+    handleRerouteError(res, err, 'Failed to preview rescue route');
+  }
+});
+
+// POST /api/vendor/rescue-sales/:id/confirm-reroute — the Vendor's one-click
+// decision. No Driver approval gate (Core Business Decision: Vendor decides).
+router.post('/rescue-sales/:id/confirm-reroute', async (req, res) => {
+  try {
+    const reroute = await rerouteService.confirmReroute(req.user.id, req.params.id);
+    res.status(201).json(reroute);
+  } catch (err) {
+    handleRerouteError(res, err, 'Failed to confirm rescue reroute');
+  }
+});
+
+// GET /api/vendor/rescue-sales/:id/reroute — current/most recent reroute for this sale.
+router.get('/rescue-sales/:id/reroute', async (req, res) => {
+  try {
+    const reroute = await rerouteService.getRerouteForVendor(req.user.id, req.params.id);
+    res.json(reroute);
+  } catch (err) {
+    handleRerouteError(res, err, 'Failed to fetch reroute');
   }
 });
 

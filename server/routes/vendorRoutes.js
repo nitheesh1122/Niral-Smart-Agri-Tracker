@@ -13,6 +13,8 @@ const { STATUSES, assertTransition, DELETABLE_STATUSES } = require('../utils/shi
 const logShipmentEvent = require('../utils/logShipmentEvent');
 const { createNotification } = require('../services/notificationService');
 const notifyEligibleCustomers = require('../utils/notifyEligibleCustomers');
+const { evaluateShipmentCondition } = require('../services/conditionEngine');
+const rescueService = require('../services/rescueService');
 
 // Every route in this file is vendor-only. Scoped with router.use() rather
 // than at the server.js mount point, because serviceRequestRoutes.js shares
@@ -336,10 +338,16 @@ router.post('/export/add/:vendorId', async (req, res) => {
       }
     }
 
+    // Terminal-state shipments (REJECTED/CANCELLED never happened;
+    // COMPLETED already finished) don't actually occupy the driver/vehicle
+    // for these dates — without this exclusion, a driver could never be
+    // reassigned to overlapping dates once any past job in that window
+    // reached a terminal state.
     const conflict = await Export.find({
       $and: [
         { startDate: { $lte: end } },
         { endDate: { $gte: start } },
+        { status: { $nin: [STATUSES.COMPLETED, STATUSES.REJECTED, STATUSES.CANCELLED] } },
         { $or: [{ driver }, { vehicle }] }
       ]
     });
@@ -649,6 +657,39 @@ router.get('/device/location-data/:exportId', async (req, res) => {
 });
 
 
+// Stage 10 — condition/perishability status for a shipment. Evaluates the
+// latest sensor reading through the Condition Engine, persists the result,
+// and (on a real status transition while IN_TRANSIT) fires a de-duplicated
+// vendor alert. See server/services/conditionEngine.js for the pipeline.
+router.get('/device/condition/:exportId', async (req, res) => {
+  try {
+    const exp = await Export.findById(req.params.exportId);
+    if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (exp.vendorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your export.' });
+    }
+
+    const result = await evaluateShipmentCondition(exp._id);
+
+    return res.json({
+      shipmentId: exp._id,
+      conditionStatus: result.conditionStatus,
+      riskStatus: result.riskStatus,
+      reason: result.reason,
+      triggeredSensors: result.triggeredSensors,
+      sensorSnapshot: result.sensorSnapshot,
+      dataQuality: result.dataQuality,
+      ruleSource: result.ruleSource,
+      evaluatedAt: result.evaluatedAt,
+      latestReadingTimestamp: result.latestReadingTimestamp,
+    });
+  } catch (err) {
+    console.error('Condition evaluation error:', err);
+    res.status(500).json({ error: 'Failed to evaluate shipment condition' });
+  }
+});
+
+
 // Push intermediate location
 router.post('/export/intermediateLocation/push/:export_id', async (req, res) => {
   const { export_id } = req.params;
@@ -859,6 +900,99 @@ router.put('/export/:id/tracking-permissions', async (req, res) => {
   } catch (err) {
     console.error('Error updating tracking permissions:', err);
     res.status(500).json({ error: 'Failed to update tracking permissions' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Stage 11 — Rescue Marketplace (Vendor side)
+// All ownership checks below come from req.user.id (JWT), never from a
+// client-supplied vendorId. See server/services/rescueService.js for the
+// business logic; routes here only translate RescueError -> HTTP status.
+// ═══════════════════════════════════════════════════════════════════
+
+function handleRescueError(res, err, fallbackMessage) {
+  if (err instanceof rescueService.RescueError) {
+    return res.status(err.status).json({ error: err.message, code: err.code });
+  }
+  console.error(fallbackMessage, err);
+  return res.status(500).json({ error: fallbackMessage });
+}
+
+// POST /api/vendor/rescue-sales — create + publish in one step (Phase 4/6).
+// Body: { shipmentId, availableQuantity, unit?, price, description?, validUntil, rescueRadiusKm? }
+router.post('/rescue-sales', async (req, res) => {
+  try {
+    const { shipmentId, ...payload } = req.body;
+    if (!shipmentId) return res.status(400).json({ error: 'shipmentId is required' });
+
+    const sale = await rescueService.createRescueSale(req.user.id, shipmentId, payload);
+    res.status(201).json(sale);
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to create rescue sale');
+  }
+});
+
+// GET /api/vendor/rescue-sales — the calling vendor's own rescue sales.
+router.get('/rescue-sales', async (req, res) => {
+  try {
+    const sales = await rescueService.listVendorRescueSales(req.user.id);
+    res.json(sales);
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to fetch rescue sales');
+  }
+});
+
+// GET /api/vendor/rescue-sales/:id
+router.get('/rescue-sales/:id', async (req, res) => {
+  try {
+    const sale = await rescueService.getVendorRescueSale(req.user.id, req.params.id);
+    res.json(sale);
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to fetch rescue sale');
+  }
+});
+
+// PUT /api/vendor/rescue-sales/:id — commercial-terms-only edit (see rescueService.updateRescueSale).
+router.put('/rescue-sales/:id', async (req, res) => {
+  try {
+    const sale = await rescueService.updateRescueSale(req.user.id, req.params.id, req.body);
+    res.json(sale);
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to update rescue sale');
+  }
+});
+
+// POST /api/vendor/rescue-sales/:id/cancel
+router.post('/rescue-sales/:id/cancel', async (req, res) => {
+  try {
+    const sale = await rescueService.cancelRescueSale(req.user.id, req.params.id);
+    res.json(sale);
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to cancel rescue sale');
+  }
+});
+
+// GET /api/vendor/rescue-sales/:id/interested-buyers — approximate distance
+// + contact info only for customers who have actually expressed interest.
+router.get('/rescue-sales/:id/interested-buyers', async (req, res) => {
+  try {
+    // Ownership check happens inside getInterestedBuyers via assertVendorOwnsRescueSale.
+    const buyers = await rescueService.getInterestedBuyers(req.user.id, req.params.id);
+    res.json(buyers);
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to fetch interested buyers');
+  }
+});
+
+// POST /api/vendor/rescue-sales/:id/select-buyer — body: { customerId }
+router.post('/rescue-sales/:id/select-buyer', async (req, res) => {
+  try {
+    const { customerId } = req.body;
+    if (!customerId) return res.status(400).json({ error: 'customerId is required' });
+    const sale = await rescueService.selectBuyer(req.user.id, req.params.id, customerId);
+    res.json(sale);
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to select buyer');
   }
 });
 

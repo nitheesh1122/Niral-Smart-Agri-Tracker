@@ -28,6 +28,7 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme'
 import ThemedCard from '../../components/ThemedCard';
 import ThemedButton from '../../components/ThemedButton';
 import { getFreshness, formatMinutesAgo, FRESHNESS } from '../../utils/freshness';
+import { getConditionMeta, getRiskLabel } from '../../utils/condition';
 
 const EVENT_LABELS = {
   SHIPMENT_CREATED: 'Shipment created',
@@ -52,6 +53,7 @@ const DriverJobDetailsModal = ({ item, onClose, onChanged, onChatWithVendor }) =
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [latestReading, setLatestReading] = useState(undefined); // undefined = loading, null = none
+  const [condition, setCondition] = useState(undefined); // undefined = loading, null = unavailable
   const [location, setLocation] = useState(undefined);
   const [actionLoading, setActionLoading] = useState(false);
   const [showRejectBox, setShowRejectBox] = useState(false);
@@ -71,6 +73,7 @@ const DriverJobDetailsModal = ({ item, onClose, onChanged, onChatWithVendor }) =
 
     if (!job.device) {
       setLatestReading(null);
+      setCondition(null);
     } else {
       (async () => {
         try {
@@ -79,6 +82,15 @@ const DriverJobDetailsModal = ({ item, onClose, onChanged, onChatWithVendor }) =
           setLatestReading(readings.length > 0 ? readings[readings.length - 1] : null);
         } catch (err) {
           setLatestReading(null);
+        }
+      })();
+
+      (async () => {
+        try {
+          const res = await api.get(`/api/driver/device/condition/${job._id}`);
+          setCondition(res.data);
+        } catch (err) {
+          setCondition(null);
         }
       })();
     }
@@ -255,6 +267,22 @@ const DriverJobDetailsModal = ({ item, onClose, onChanged, onChatWithVendor }) =
 
           {/* IoT */}
           <Text style={styles.sectionTitle}>IoT Device</Text>
+          {job.device && condition && (() => {
+            const meta = getConditionMeta(condition.conditionStatus);
+            return (
+              <View style={[styles.conditionBanner, { backgroundColor: meta.bg, borderColor: meta.color }]}>
+                <View style={styles.conditionHeaderRow}>
+                  <Text style={[styles.conditionStatusText, { color: meta.color }]}>
+                    {meta.icon} {meta.label.toUpperCase()}
+                  </Text>
+                  <Text style={[styles.conditionRiskText, { color: meta.color }]}>
+                    {getRiskLabel(condition.riskStatus)}
+                  </Text>
+                </View>
+                <Text style={styles.conditionReasonText}>{condition.reason}</Text>
+              </View>
+            );
+          })()}
           <ThemedCard variant="outlined" style={styles.card}>
             {!job.device ? (
               <Text style={styles.emptyText}>No IoT device linked to this vehicle.</Text>
@@ -366,6 +394,30 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, padding: spacing.md },
   sectionTitle: { ...typography.bodyMedium, color: colors.text.primary, marginTop: spacing.md, marginBottom: spacing.xs },
   card: { marginBottom: spacing.sm },
+  conditionBanner: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: spacing.sm + 4,
+    marginBottom: spacing.sm,
+  },
+  conditionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  conditionStatusText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  conditionRiskText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  conditionReasonText: {
+    marginTop: 6,
+    fontSize: 13,
+    color: colors.text?.secondary || '#444',
+  },
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border.light },
   rowLabel: { ...typography.bodySmall, color: colors.text.muted },
   rowValue: { ...typography.bodySmall, color: colors.text.primary, flex: 1, textAlign: 'right', marginLeft: spacing.md },

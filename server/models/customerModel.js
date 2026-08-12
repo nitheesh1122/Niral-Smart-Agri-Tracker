@@ -14,12 +14,24 @@ const customerSchema = new mongoose.Schema({
   // establishes the field, no screen collects it yet.
   address: { type: String, default: null, maxlength: 500 },
 
-  // GeoJSON point, only set once a screen starts capturing precise
-  // coordinates (e.g. for a future "nearby rescue sales" query).
+  // GeoJSON point. Stage 11 is the first stage that actually reads this —
+  // set only when the customer explicitly opts into Rescue Sale
+  // notifications (see rescueOptIn below) and grants location permission.
   location: {
     type: { type: String, enum: ['Point'], default: 'Point' },
     coordinates: { type: [Number], default: undefined }, // [lng, lat]
   },
+  // When `location` was last captured, so eligibility can distinguish a
+  // fresh consent from a months-old one (Phase 8/9 — see
+  // CUSTOMER_LOCATION_STALE_DAYS in server/config/rescueConfig.js).
+  locationUpdatedAt: { type: Date, default: null },
+
+  // Explicit opt-in gate for the Rescue Marketplace (Phase 9). Off by
+  // default — never inferred from having set `location` for some other
+  // reason, and never required for normal Fresh Goods use. A customer who
+  // opts out is excluded from radius-based eligibility even if `location`
+  // is still populated from a prior opt-in.
+  rescueOptIn: { type: Boolean, default: false },
 
   // Foundation for future rescue-marketplace filtering — not read by any
   // route yet.
@@ -34,6 +46,11 @@ const customerSchema = new mongoose.Schema({
 // Database indexes for faster queries
 // No separate .index({username:1}) / .index({email:1}) — `unique: true`
 // on those fields above already creates that index.
+
+// Phase 32: geospatial index backing the Rescue Sale nearby-customer query
+// (server/services/rescueService.js) so eligibility never requires loading
+// every Customer into Node to compute distance.
+customerSchema.index({ location: '2dsphere' });
 
 // Only hash password if it's new or modified
 customerSchema.pre('save', async function (next) {

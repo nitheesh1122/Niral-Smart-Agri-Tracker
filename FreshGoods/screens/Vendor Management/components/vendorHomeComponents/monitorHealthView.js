@@ -19,6 +19,7 @@ import api from '../../../services/api';
 import { AnimatedCircularProgress } from 'react-native-circular-progress';
 import { colors, spacing, typography, borderRadius } from '../../../theme';
 import { getFreshness, formatMinutesAgo, FRESHNESS } from '../../../utils/freshness';
+import { getConditionMeta, getRiskLabel } from '../../../utils/condition';
 
 const Gauge = ({ label, value, max, type }) => {
   const getColor = (val) => {
@@ -58,12 +59,39 @@ const Gauge = ({ label, value, max, type }) => {
   );
 };
 
+const ConditionBanner = ({ condition }) => {
+  if (condition === undefined) {
+    return (
+      <View style={[styles.conditionBanner, { backgroundColor: '#F3F4F6' }]}>
+        <ActivityIndicator size="small" color={colors.primary} />
+      </View>
+    );
+  }
+  if (!condition) return null;
+
+  const meta = getConditionMeta(condition.conditionStatus);
+  return (
+    <View style={[styles.conditionBanner, { backgroundColor: meta.bg, borderColor: meta.color }]}>
+      <View style={styles.conditionHeaderRow}>
+        <Text style={[styles.conditionStatusText, { color: meta.color }]}>
+          {meta.icon} {meta.label.toUpperCase()}
+        </Text>
+        <Text style={[styles.conditionRiskText, { color: meta.color }]}>
+          {getRiskLabel(condition.riskStatus)}
+        </Text>
+      </View>
+      <Text style={styles.conditionReasonText}>{condition.reason}</Text>
+    </View>
+  );
+};
+
 const MonitorHealthView = ({ selectedExport, onBack }) => {
   const [data, setData] = useState(null);
   const [allData, setAllData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [condition, setCondition] = useState(undefined); // undefined = loading, null = unavailable
 
   const formatDate = (date) => {
     return date.toISOString().split('T')[0]; // YYYY-MM-DD
@@ -108,6 +136,20 @@ const MonitorHealthView = ({ selectedExport, onBack }) => {
     fetchSensorData(selectedDate);
   }, [selectedDate, fetchSensorData]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get(`/api/vendor/device/condition/${selectedExport._id}`);
+        if (!cancelled) setCondition(res.data);
+      } catch (err) {
+        console.error('Condition fetch error:', err);
+        if (!cancelled) setCondition(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedExport._id]);
+
   const handleDateConfirm = (date) => {
     setShowDatePicker(false);
     setSelectedDate(date);
@@ -134,6 +176,8 @@ const MonitorHealthView = ({ selectedExport, onBack }) => {
   return (
     <ScrollView contentContainerStyle={styles.viewContainer}>
       <Text style={styles.viewTitle}>📊 {selectedExport.itemName}</Text>
+
+      <ConditionBanner condition={condition} />
 
       {/* Date Selector */}
       <View style={styles.dateSelector}>
@@ -295,6 +339,33 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     color: '#666',
+  },
+  conditionBanner: {
+    width: '100%',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 16,
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  conditionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  conditionStatusText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  conditionRiskText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  conditionReasonText: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#444',
   },
   gaugeRow: {
     flexDirection: 'row',

@@ -16,6 +16,7 @@ import VendorHomePlaceHolder from './components/vendorHomePlaceHolder';
 import ServiceRequestManager from './components/ServiceRequestManager';
 import VendorExportDashboard from './components/VendorExportDashboard';
 import VendorAnalytics from './components/VendorAnalytics';
+import VendorRescueSales from './components/VendorRescueSales';
 
 // Chat helpers
 import CustomerSelectList from './components/CustomerSelectionList';
@@ -32,6 +33,7 @@ import { colors } from '../theme';
 const MENU_ITEMS = [
   { id: 'home', label: 'Home', icon: '🏠' },
   { id: 'exportDashboard', label: 'Export Dashboard', icon: '📊' },
+  { id: 'rescueSales', label: 'Rescue Sales', icon: '🚨' },
   { id: 'analytics', label: 'Analytics', icon: '📈' },
   { id: 'serviceRequests', label: 'Service Requests', icon: '📋' },
   { id: 'driver', label: 'Driver Management', icon: '👨‍✈️' },
@@ -141,6 +143,8 @@ const VendorHome = () => {
             }}
           />
         );
+      case 'rescueSales':
+        return <VendorRescueSales />;
       case 'analytics':
         return <VendorAnalytics onBack={() => setActiveSection('home')} />;
       case 'serviceRequests':

@@ -11,6 +11,7 @@ const { STATUSES, assertTransition } = require('../utils/shipmentStateMachine');
 const logShipmentEvent = require('../utils/logShipmentEvent');
 const { createNotification } = require('../services/notificationService');
 const notifyEligibleCustomers = require('../utils/notifyEligibleCustomers');
+const { evaluateShipmentCondition } = require('../services/conditionEngine');
 
 router.get('/export/driver/:driverId', async (req, res) => {
   try {
@@ -394,6 +395,38 @@ router.get('/device/location-data/:exportId', async (req, res) => {
   } catch (err) {
     console.error('Location data fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch location data' });
+  }
+});
+
+
+// Stage 10 — condition/perishability status for the driver's assigned
+// shipment. Same Condition Engine pipeline as the vendor endpoint (a real
+// status transition still alerts the Vendor, not the Driver — Driver never
+// modifies or is the recipient of the condition result), but the response
+// is trimmed to what a Driver should see: no rule source, no internal
+// data-quality codes beyond what's needed to explain "why unknown".
+router.get('/device/condition/:exportId', async (req, res) => {
+  try {
+    const exp = await Export.findById(req.params.exportId);
+    if (!exp) return res.status(404).json({ error: 'Export not found' });
+    if (!exp.driver || exp.driver.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your assigned export.' });
+    }
+
+    const result = await evaluateShipmentCondition(exp._id);
+
+    return res.json({
+      conditionStatus: result.conditionStatus,
+      riskStatus: result.riskStatus,
+      reason: result.reason,
+      triggeredSensors: result.triggeredSensors,
+      sensorSnapshot: result.sensorSnapshot,
+      evaluatedAt: result.evaluatedAt,
+      latestReadingTimestamp: result.latestReadingTimestamp,
+    });
+  } catch (err) {
+    console.error('Condition evaluation error:', err);
+    res.status(500).json({ error: 'Failed to evaluate shipment condition' });
   }
 });
 

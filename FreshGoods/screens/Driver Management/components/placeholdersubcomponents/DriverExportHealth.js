@@ -11,10 +11,12 @@ import {
 import api from '../../../services/api';
 import { AnimatedCircularProgress } from 'react-native-circular-progress';
 import { getFreshness, formatMinutesAgo, FRESHNESS } from '../../../utils/freshness';
+import { getConditionMeta, getRiskLabel } from '../../../utils/condition';
 
 const DriverExportHealth = ({ exportId, onBack }) => {
   const [sensorData, setSensorData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [condition, setCondition] = useState(undefined); // undefined = loading, null = unavailable
 
   useEffect(() => {
     const fetchSensorData = async () => {
@@ -34,7 +36,18 @@ const DriverExportHealth = ({ exportId, onBack }) => {
       }
     };
 
+    const fetchCondition = async () => {
+      try {
+        const res = await api.get(`/api/driver/device/condition/${exportId}`);
+        setCondition(res.data);
+      } catch (err) {
+        console.error('Error fetching condition status:', err);
+        setCondition(null);
+      }
+    };
+
     fetchSensorData();
+    fetchCondition();
   }, [exportId]);
 
   const getColor = (label, value) => {
@@ -84,6 +97,23 @@ const DriverExportHealth = ({ exportId, onBack }) => {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>🍎 Monitoring Export Health</Text>
       <Text style={styles.subtext}>Export ID: {exportId}</Text>
+
+      {condition && (() => {
+        const meta = getConditionMeta(condition.conditionStatus);
+        return (
+          <View style={[styles.conditionBanner, { backgroundColor: meta.bg, borderColor: meta.color }]}>
+            <View style={styles.conditionHeaderRow}>
+              <Text style={[styles.conditionStatusText, { color: meta.color }]}>
+                {meta.icon} {meta.label.toUpperCase()}
+              </Text>
+              <Text style={[styles.conditionRiskText, { color: meta.color }]}>
+                {getRiskLabel(condition.riskStatus)}
+              </Text>
+            </View>
+            <Text style={styles.conditionReasonText}>{condition.reason}</Text>
+          </View>
+        );
+      })()}
 
       {loading ? (
         <ActivityIndicator size="large" color="#007AFF" style={{ marginTop: 20 }} />
@@ -140,6 +170,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginBottom: 20,
+  },
+  conditionBanner: {
+    width: '100%',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 16,
+  },
+  conditionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  conditionStatusText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  conditionRiskText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  conditionReasonText: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#444',
   },
   gaugeContainer: {
     marginBottom: 30,

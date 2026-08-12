@@ -10,6 +10,7 @@ const Device = require('../models/deviceModel');
 const Export = require('../models/shipmentModel');
 const ShipmentEvent = require('../models/shipmentEventModel');
 const { STATUSES } = require('../utils/shipmentStateMachine');
+const rescueService = require('../services/rescueService');
 
 // Event types a customer is allowed to see on a shipment timeline. The
 // query below already .select()s only eventType + timestamp, so even
@@ -304,6 +305,79 @@ router.get('/dashboard/:customerId', async (req, res) => {
         console.error('Error fetching dashboard:', err);
         res.status(500).json({ error: 'Failed to fetch dashboard data' });
     }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Stage 11 — Rescue Marketplace (Customer side)
+// Identity always from req.user.id (JWT). A Customer may only ever act on
+// their own interest records — enforced inside rescueService, not trusted
+// from the request body.
+// ═══════════════════════════════════════════════════════════════════
+
+function handleRescueError(res, err, fallbackMessage) {
+  if (err instanceof rescueService.RescueError) {
+    return res.status(err.status).json({ error: err.message, code: err.code });
+  }
+  console.error(fallbackMessage, err);
+  return res.status(500).json({ error: fallbackMessage });
+}
+
+// PUT /api/customer/rescue-preferences — explicit opt-in gate + location
+// capture (Phase 9). Never invoked implicitly; the customer must choose to
+// enable this, and may disable it again at any time without affecting any
+// other Fresh Goods functionality.
+// Body: { optIn: boolean, latitude?: number, longitude?: number }
+router.put('/rescue-preferences', async (req, res) => {
+  try {
+    const { optIn, latitude, longitude } = req.body;
+    const customer = await rescueService.setRescuePreferences(req.user.id, { optIn, latitude, longitude });
+    res.json({ rescueOptIn: customer.rescueOptIn, locationUpdatedAt: customer.locationUpdatedAt });
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to update rescue preferences');
+  }
+});
+
+// GET /api/customer/rescue-sales — nearby, eligible, published rescue
+// opportunities only. Returns [] (not an error) when the customer hasn't
+// opted in or has no usable location — the empty state is meaningful, not
+// a failure.
+router.get('/rescue-sales', async (req, res) => {
+  try {
+    const sales = await rescueService.listPublishedRescueSalesForCustomer(req.user.id);
+    res.json(sales);
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to fetch rescue sales');
+  }
+});
+
+// GET /api/customer/rescue-sales/:id
+router.get('/rescue-sales/:id', async (req, res) => {
+  try {
+    const sale = await rescueService.getRescueSaleForCustomer(req.user.id, req.params.id);
+    res.json(sale);
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to fetch rescue sale');
+  }
+});
+
+// POST /api/customer/rescue-sales/:id/interest — "I'm interested" (not a purchase).
+router.post('/rescue-sales/:id/interest', async (req, res) => {
+  try {
+    const interest = await rescueService.expressInterest(req.user.id, req.params.id);
+    res.json(interest);
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to record interest');
+  }
+});
+
+// DELETE /api/customer/rescue-sales/:id/interest — withdraw interest.
+router.delete('/rescue-sales/:id/interest', async (req, res) => {
+  try {
+    const interest = await rescueService.withdrawInterest(req.user.id, req.params.id);
+    res.json(interest);
+  } catch (err) {
+    handleRescueError(res, err, 'Failed to withdraw interest');
+  }
 });
 
 module.exports = router;

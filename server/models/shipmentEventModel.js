@@ -22,9 +22,11 @@ const shipmentEventSchema = new mongoose.Schema({
       'DELIVERY_STARTED',
       'DELIVERY_COMPLETED',
       'SHIPMENT_CANCELLED',
-      // Reserved for future stages — not emitted yet:
+      // Stage 10 — emitted by the Condition Engine (server/services/conditionEngine.js):
       'IOT_WARNING',
       'HIGH_RISK_DETECTED',
+      'CONDITION_RECOVERED',
+      // Reserved for future stages — not emitted yet:
       'RESCUE_SALE_CREATED',
       'ROUTE_SUGGESTED',
       'ROUTE_ACCEPTED',

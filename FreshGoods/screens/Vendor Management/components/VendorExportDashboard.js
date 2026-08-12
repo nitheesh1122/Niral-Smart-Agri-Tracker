@@ -41,6 +41,8 @@ import {
 import ExportLocationView from './vendorHomeComponents/exportLocationView';
 import MonitorHealthView from './vendorHomeComponents/monitorHealthView';
 import { getFreshness, formatMinutesAgo, FRESHNESS } from '../../utils/freshness';
+import { getConditionMeta, getRiskLabel } from '../../utils/condition';
+import CreateRescueSaleModal from './vendorHomeComponents/CreateRescueSaleModal';
 
 const EVENT_LABELS = {
     SHIPMENT_CREATED: 'Shipment created',
@@ -197,6 +199,8 @@ const ShipmentDetailsModal = ({ item, onClose, onViewLocation, onChatWithDriver 
     const [loadingEvents, setLoadingEvents] = useState(true);
     const [latestReading, setLatestReading] = useState(undefined); // undefined = loading, null = none found
     const [showFullIoT, setShowFullIoT] = useState(false);
+    const [condition, setCondition] = useState(undefined); // undefined = loading, null = unavailable
+    const [showCreateRescueSale, setShowCreateRescueSale] = useState(false);
 
     useEffect(() => {
         (async () => {
@@ -230,6 +234,7 @@ const ShipmentDetailsModal = ({ item, onClose, onViewLocation, onChatWithDriver 
         // Only shipments with a linked device can have sensor readings at all.
         if (!item.device) {
             setLatestReading(null);
+            setCondition(null);
         } else {
             (async () => {
                 try {
@@ -239,6 +244,16 @@ const ShipmentDetailsModal = ({ item, onClose, onViewLocation, onChatWithDriver 
                 } catch (err) {
                     console.error('Failed to load IoT summary:', err);
                     setLatestReading(null);
+                }
+            })();
+
+            (async () => {
+                try {
+                    const res = await api.get(`/api/vendor/device/condition/${item._id}`);
+                    setCondition(res.data);
+                } catch (err) {
+                    console.error('Failed to load condition status:', err);
+                    setCondition(null);
                 }
             })();
         }
@@ -408,6 +423,32 @@ const ShipmentDetailsModal = ({ item, onClose, onViewLocation, onChatWithDriver 
 
                     {/* IoT summary */}
                     <Text style={styles.detailsSectionTitle}>IoT Device</Text>
+                    {item.device && condition && (() => {
+                        const meta = getConditionMeta(condition.conditionStatus);
+                        return (
+                            <View style={[styles.conditionBanner, { backgroundColor: meta.bg, borderColor: meta.color }]}>
+                                <View style={styles.conditionHeaderRow}>
+                                    <Text style={[styles.conditionStatusText, { color: meta.color }]}>
+                                        {meta.icon} {meta.label.toUpperCase()}
+                                    </Text>
+                                    <Text style={[styles.conditionRiskText, { color: meta.color }]}>
+                                        {getRiskLabel(condition.riskStatus)}
+                                    </Text>
+                                </View>
+                                <Text style={styles.conditionReasonText}>{condition.reason}</Text>
+                                {item.status === 'IN_TRANSIT' && ['WARNING', 'CRITICAL'].includes(condition.conditionStatus) && (
+                                    <ThemedButton
+                                        title="Create Rescue Sale"
+                                        variant="gradient"
+                                        size="small"
+                                        icon="🚨"
+                                        onPress={() => setShowCreateRescueSale(true)}
+                                        style={{ marginTop: spacing.sm }}
+                                    />
+                                )}
+                            </View>
+                        );
+                    })()}
                     <ThemedCard variant="outlined" style={styles.detailsCard}>
                         {!item.device ? (
                             <Text style={styles.emptySubtext}>No IoT device linked to this shipment's vehicle.</Text>
@@ -499,6 +540,15 @@ const ShipmentDetailsModal = ({ item, onClose, onViewLocation, onChatWithDriver 
                     <View style={{ height: spacing.xxl }} />
                 </ScrollView>
             </View>
+
+            {showCreateRescueSale && (
+                <CreateRescueSaleModal
+                    shipment={item}
+                    condition={condition}
+                    onClose={() => setShowCreateRescueSale(false)}
+                    onCreated={() => setShowCreateRescueSale(false)}
+                />
+            )}
         </Modal>
     );
 };
@@ -839,6 +889,30 @@ const styles = StyleSheet.create({
     },
     detailsCard: {
         marginBottom: spacing.md,
+    },
+    conditionBanner: {
+        borderRadius: borderRadius.md || 12,
+        borderWidth: 1,
+        padding: spacing.md,
+        marginBottom: spacing.sm,
+    },
+    conditionHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    conditionStatusText: {
+        fontSize: 15,
+        fontWeight: '700',
+    },
+    conditionRiskText: {
+        fontSize: 12,
+        fontWeight: '700',
+    },
+    conditionReasonText: {
+        marginTop: 6,
+        fontSize: 13,
+        color: colors.text.secondary || '#444',
     },
     detailRow: {
         flexDirection: 'row',

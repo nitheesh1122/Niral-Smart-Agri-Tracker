@@ -16,6 +16,8 @@ import CustomerMyShipments from './components/CustomerMyShipments';
 import CustomerShipmentDetails from './components/CustomerShipmentDetails';
 import VendorSelectList from './components/VendorSelectList';
 import CustomerChat from './components/CustomerChatPlaceholder';
+import CustomerRescueOpportunities from './components/CustomerRescueOpportunities';
+import RescueSaleDetails from './components/RescueSaleDetails';
 
 // Components
 import SidebarMenu from '../components/SidebarMenu';
@@ -29,6 +31,7 @@ const MENU_ITEMS = [
   { id: 'profile', label: 'Profile', icon: '👤' },
   { id: 'myShipments', label: 'My Shipments', icon: '📦' },
   { id: 'viewGoods', label: 'Browse Goods', icon: '🛒' },
+  { id: 'rescue', label: 'Rescue Opportunities', icon: '🚨' },
   { id: 'chat', label: 'Chat', icon: '💬' },
   { id: 'notifications', label: 'Notifications', icon: '🔔' },
   { id: 'settings', label: 'Settings', icon: '⚙️' },
@@ -51,6 +54,9 @@ const CustomerHome = () => {
   // Tracking state
   const [trackingData, setTrackingData] = useState(null);
 
+  // Rescue Sale state
+  const [selectedRescueSaleId, setSelectedRescueSaleId] = useState(null);
+
   // Get user data
   useEffect(() => {
     const fetchUserData = async () => {
@@ -67,6 +73,7 @@ const CustomerHome = () => {
   // Get page title
   const getPageTitle = () => {
     if (activeSection === 'shipmentDetails') return 'Shipment Details';
+    if (activeSection === 'rescueDetails') return 'Rescue Sale';
     if (activeSection === 'chat' && vendorName) return `Chat with ${vendorName}`;
     const item = MENU_ITEMS.find((m) => m.id === activeSection);
     return item ? item.label : 'Home';
@@ -84,7 +91,10 @@ const CustomerHome = () => {
 
   // Handle back in chat or shipment details
   const handleBack = () => {
-    if (activeSection === 'shipmentDetails') {
+    if (activeSection === 'rescueDetails') {
+      setSelectedRescueSaleId(null);
+      setActiveSection('rescue');
+    } else if (activeSection === 'shipmentDetails') {
       setTrackingData(null);
       setActiveSection('home');
     } else if (vendorId) {
@@ -144,6 +154,24 @@ const CustomerHome = () => {
           />
         );
 
+      case 'rescue':
+        return (
+          <CustomerRescueOpportunities
+            onOpen={(id) => {
+              setSelectedRescueSaleId(id);
+              setActiveSection('rescueDetails');
+            }}
+          />
+        );
+
+      case 'rescueDetails':
+        return (
+          <RescueSaleDetails
+            rescueSaleId={selectedRescueSaleId}
+            onBack={handleBack}
+          />
+        );
+
       case 'notifications':
         return <NotificationCenter onBack={() => setActiveSection('home')} />;
 
@@ -158,6 +186,7 @@ const CustomerHome = () => {
 
   const showBackButton =
     activeSection === 'shipmentDetails' ||
+    activeSection === 'rescueDetails' ||
     (activeSection === 'chat' && vendorId);
 
   return (
@@ -194,6 +223,7 @@ const CustomerHome = () => {
           setVendorId(null);
           setVendorName(null);
           setTrackingData(null);
+          setSelectedRescueSaleId(null);
         }}
         navigation={navigation}
         userName={userName}

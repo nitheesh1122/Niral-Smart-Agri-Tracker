@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
 import api from '../../services/api';
 import {
     colors,
@@ -114,6 +115,7 @@ const CustomerProfile = () => {
         emailUpdates: true,
         locationSharing: false,
     });
+    const [locationSharingBusy, setLocationSharingBusy] = useState(false);
     const [editData, setEditData] = useState({
         name: '',
         email: '',
@@ -142,6 +144,7 @@ const CustomerProfile = () => {
                     mobileNo: profileRes.data.mobileNo || '',
                     address: profileRes.data.address || '',
                 });
+                setSettings((s) => ({ ...s, locationSharing: !!profileRes.data.rescueOptIn }));
             }
 
             if (dashboardRes?.data?.stats) {
@@ -184,6 +187,45 @@ const CustomerProfile = () => {
             Alert.alert('Error', 'Failed to update profile');
         } finally {
             setSaving(false);
+        }
+    };
+
+    // Stage 11 Phase 9: explicit opt-in for Rescue Sale proximity
+    // notifications. Off by default, never required for normal Fresh Goods
+    // use, and never re-prompted automatically if the customer declines —
+    // they can retry by tapping the toggle again whenever they choose to.
+    const handleToggleLocationSharing = async (nextValue) => {
+        if (locationSharingBusy) return;
+        setLocationSharingBusy(true);
+        try {
+            if (!nextValue) {
+                await api.put('/api/customer/rescue-preferences', { optIn: false });
+                setSettings((s) => ({ ...s, locationSharing: false }));
+                return;
+            }
+
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert(
+                    'Location permission needed',
+                    'Enable location access to receive nearby Rescue Sale opportunities. You can keep using Fresh Goods normally without it.'
+                );
+                return;
+            }
+
+            const position = await Location.getCurrentPositionAsync({});
+            await api.put('/api/customer/rescue-preferences', {
+                optIn: true,
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+            });
+            setSettings((s) => ({ ...s, locationSharing: true }));
+            Alert.alert('Rescue Sale notifications enabled', "You'll be notified about nearby rescue opportunities.");
+        } catch (err) {
+            console.error('Failed to update rescue preferences:', err);
+            Alert.alert('Error', 'Failed to update location sharing. Please try again.');
+        } finally {
+            setLocationSharingBusy(false);
         }
     };
 
@@ -407,12 +449,15 @@ const CustomerProfile = () => {
                         />
                         <SettingsRow
                             icon="📍"
-                            label="Location Sharing"
+                            label="Rescue Sale Notifications"
                             value={settings.locationSharing}
-                            onToggle={() =>
-                                setSettings({ ...settings, locationSharing: !settings.locationSharing })
-                            }
+                            onToggle={() => handleToggleLocationSharing(!settings.locationSharing)}
                         />
+                        <Text style={styles.settingsHint}>
+                            Share your approximate location to get notified when a vendor's
+                            shipment nearby needs a rescue buyer. Your exact location is never
+                            shown to vendors or other customers.
+                        </Text>
                     </ThemedCard>
                 </FadeInView>
 
@@ -660,6 +705,12 @@ const styles = StyleSheet.create({
     settingsArrow: {
         fontSize: 24,
         color: colors.text.muted,
+    },
+    settingsHint: {
+        ...typography.caption,
+        color: colors.text.muted,
+        paddingTop: spacing.xs,
+        paddingBottom: spacing.sm,
     },
     appInfo: {
         alignItems: 'center',

@@ -6,6 +6,7 @@ const Vendor = require('../models/vendorModel');
 const Customer = require('../models/customerModel');
 const Driver = require('../models/driverModel'); // Assuming you have a Driver model
 const { createNotification } = require('../services/notificationService');
+const { authorize } = require('../middleware/auth');
 
 /**
  * Send push notification via Expo Push API
@@ -178,7 +179,11 @@ router.get('/vendors/get', async (req, res) => {
 
 
 // GET all customers for vendor chat list
-router.get('/customers/get', async (req, res) => {
+// Vendor-only: this returns every customer's name + mobile number, so it
+// must not be reachable by an authenticated Customer or Driver (chat.js is
+// mounted with only authMiddleware in server.js since it's shared across
+// roles, so the role gate has to live here rather than at the mount point).
+router.get('/customers/get', authorize('Vendor'), async (req, res) => {
   try {
     const customers = await Customer.find({}, '_id name mobileNo').sort({ createdAt: -1 });
     res.json(customers);

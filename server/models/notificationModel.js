@@ -4,9 +4,13 @@ const mongoose = require('mongoose');
  * Extensible notification record. Stage 4 persists notifications for the
  * events that already trigger an Expo push today (job assignment/accept/
  * reject/complete, chat message) so there is a durable in-app history
- * alongside the push. It does not add new triggers (rescue sale, IoT risk,
- * route suggestion) — those enum values exist so later stages don't need a
+ * alongside the push. It does not add new triggers (rescue sale, route
+ * suggestion) — those enum values exist so later stages don't need a
  * schema migration, but nothing emits them yet.
+ *
+ * Stage 10 starts emitting IOT_RISK_ALERT from the Condition Engine
+ * (server/services/conditionEngine.js) — see shouldFireAlert() there for
+ * the escalation/recovery/dedup rules governing when it fires.
  */
 const notificationSchema = new mongoose.Schema({
   // Polymorphic recipient — one of Vendor/Driver/Customer.
@@ -22,10 +26,13 @@ const notificationSchema = new mongoose.Schema({
       'JOB_REJECTED',
       'SHIPMENT_STATUS_CHANGED',
       'CHAT_MESSAGE',
-      // Reserved for future stages — not emitted yet:
+      // Stage 10:
       'IOT_RISK_ALERT',
+      // Stage 11 — emitted by server/services/rescueService.js:
       'RESCUE_SALE_AVAILABLE',
       'CUSTOMER_INTEREST',
+      'RESCUE_BUYER_SELECTED',
+      // Reserved for a future stage — not emitted yet:
       'ROUTE_SUGGESTION',
     ],
   },

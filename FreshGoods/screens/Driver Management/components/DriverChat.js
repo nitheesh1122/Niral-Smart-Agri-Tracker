@@ -42,16 +42,23 @@ const CHAT_EVENT = 'new-message';
  * DriverChat - Premium chat for drivers
  */
 export default function DriverChat({
-  driverId,
+  driverId: driverIdProp,
   vendorId,
   vendorName = 'Vendor',
   onBack,
 }) {
+  const [driverId, setDriverId] = useState(driverIdProp || null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const flatRef = useRef(null);
+
+  // Get driver ID
+  useEffect(() => {
+    if (driverId) return;
+    AsyncStorage.getItem('userId').then((id) => id && setDriverId(id));
+  }, [driverId]);
 
   // Fetch history + Pusher
   useEffect(() => {

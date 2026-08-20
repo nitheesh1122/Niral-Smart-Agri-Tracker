@@ -54,6 +54,11 @@ const driverSchema = new mongoose.Schema({
   // computes busy-ness from overlapping shipment dates).
   isAvailable: { type: Boolean, default: true },
 
+  // Standing Driver -> Vehicle assignment (independent of per-shipment
+  // driver/vehicle selection in Shipment.driver/Shipment.vehicle). Type is
+  // Number, not ObjectId, to match Vehicle._id (see VehicleModel.js).
+  vehicle: { type: Number, ref: 'Vehicle', default: null },
+
   // Push notification token
   expoPushToken: { type: String, default: null }
 
@@ -66,6 +71,7 @@ const driverSchema = new mongoose.Schema({
 // No separate .index({username:1}) / .index({email:1}) — `unique: true`
 // on those fields above already creates that index.
 driverSchema.index({ vendor: 1 });
+driverSchema.index({ vehicle: 1 });
 
 // Hash password before saving
 driverSchema.pre('save', async function (next) {

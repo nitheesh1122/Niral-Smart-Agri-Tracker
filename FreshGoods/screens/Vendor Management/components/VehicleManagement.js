@@ -3,7 +3,7 @@
  * Premium vehicle management with modern UI
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
 import {
   colors,
@@ -35,9 +36,9 @@ import { SlideInView, FadeInView } from '../../components/AnimatedComponents';
 // ═══════════════════════════════════════════════════════════════════
 // VEHICLE CARD COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-const VehicleCard = ({ vehicle, index }) => (
+const VehicleCard = ({ vehicle, index, onPress }) => (
   <SlideInView delay={index * 80}>
-    <ThemedCard variant="elevated" style={styles.vehicleCard}>
+    <ThemedCard variant="elevated" style={styles.vehicleCard} onPress={onPress}>
       {/* Vehicle Icon */}
       <View style={styles.vehicleHeader}>
         <LinearGradient
@@ -85,7 +86,7 @@ const AddVehicleModal = ({
   onSubmit,
   submitting,
 }) => (
-  <Modal visible={visible} animationType="slide" transparent>
+  <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
     <View style={styles.modalOverlay}>
       <View style={styles.modalContent}>
         {/* Header */}
@@ -145,7 +146,7 @@ const AddVehicleModal = ({
               onValueChange={(val) => setForm({ ...form, deviceId: val })}
               style={styles.picker}
             >
-              <Picker.Item label="-- Select Device --" value="" />
+              <Picker.Item label="-- No device (optional) --" value="" />
               {deviceOptions.map((d) => (
                 <Picker.Item key={d._id} label={d.deviceName} value={d.deviceName} />
               ))}
@@ -179,7 +180,7 @@ const AddVehicleModal = ({
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-const VehicleManagement = () => {
+const VehicleManagement = ({ navigation }) => {
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -238,9 +239,11 @@ const VehicleManagement = () => {
     }
   };
 
-  useEffect(() => {
-    fetchVehicles();
-  }, [fetchVehicles]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchVehicles();
+    }, [fetchVehicles])
+  );
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -285,7 +288,7 @@ const VehicleManagement = () => {
         data={vehicles}
         keyExtractor={(item) => item._id?.toString()}
         renderItem={({ item, index }) => (
-          <VehicleCard vehicle={item} index={index} />
+          <VehicleCard vehicle={item} index={index} onPress={() => navigation.navigate('VehicleDetails', { vehicle: item })} />
         )}
         contentContainerStyle={styles.listContent}
         refreshControl={

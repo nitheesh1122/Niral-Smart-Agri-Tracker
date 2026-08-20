@@ -14,12 +14,32 @@ const customerSchema = new mongoose.Schema({
   // establishes the field, no screen collects it yet.
   address: { type: String, default: null, maxlength: 500 },
 
-  // GeoJSON point. Stage 11 is the first stage that actually reads this —
-  // set only when the customer explicitly opts into Rescue Sale
-  // notifications (see rescueOptIn below) and grants location permission.
+  // GeoJSON point — the customer's preferred delivery location. Optional:
+  // never required at registration, set later from the Customer Portal (map
+  // picker) or via Rescue Sale opt-in (see rescueOptIn below), whichever
+  // happens first. `type` deliberately has no default — with one, Mongoose
+  // materializes `location: { type: 'Point' }` on every Customer that never
+  // sets a location, which is invalid GeoJSON (no coordinates) and made the
+  // 2dsphere index below reject every plain registration. Leaving both
+  // sub-paths default-free keeps `location` fully absent until a real point
+  // is saved, which is what the index's sparse-by-default behavior expects.
   location: {
-    type: { type: String, enum: ['Point'], default: 'Point' },
-    coordinates: { type: [Number], default: undefined }, // [lng, lat]
+    type: { type: String, enum: ['Point'] },
+    coordinates: {
+      type: [Number], // [lng, lat]
+      validate: {
+        validator: function (v) {
+          if (v === undefined || v === null) return true;
+          if (!Array.isArray(v) || v.length !== 2) return false;
+          const [lng, lat] = v;
+          return (
+            typeof lng === 'number' && Number.isFinite(lng) && lng >= -180 && lng <= 180 &&
+            typeof lat === 'number' && Number.isFinite(lat) && lat >= -90 && lat <= 90
+          );
+        },
+        message: 'coordinates must be [longitude, latitude] with longitude in [-180,180] and latitude in [-90,90]',
+      },
+    },
   },
   // When `location` was last captured, so eligibility can distinguish a
   // fresh consent from a months-old one (Phase 8/9 — see

@@ -26,6 +26,7 @@ import {
     typography,
     shadows,
 } from '../theme';
+import { useAuth } from '../../navigation/AuthContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SIDEBAR_WIDTH = SCREEN_WIDTH * 0.78;
@@ -43,6 +44,7 @@ const SidebarMenu = ({
 }) => {
     const slideAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
+    const { signOut } = useAuth();
 
     useEffect(() => {
         if (isVisible) {
@@ -87,10 +89,9 @@ const SidebarMenu = ({
                     onPress: async () => {
                         await AsyncStorage.clear();
                         onClose();
-                        navigation?.reset({
-                            index: 0,
-                            routes: [{ name: 'Login', params: { selectedRole: userRole } }],
-                        });
+                        // Flips RootNavigator to AuthStack, unmounting the
+                        // whole role navigator (and its back-stack) with it.
+                        signOut();
                     },
                 },
             ]

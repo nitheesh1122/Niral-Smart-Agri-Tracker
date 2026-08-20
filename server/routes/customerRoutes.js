@@ -48,6 +48,54 @@ router.get('/profile/:customerId', async (req, res) => {
 });
 
 /**
+ * PUT /api/customer/location
+ * Set/replace the authenticated customer's preferred delivery location.
+ * Identity always comes from the JWT (req.user.id) — never a body/URL
+ * customerId — so a customer can only ever update their own location.
+ * Independent of Rescue Sale opt-in: PUT /rescue-preferences below also
+ * writes these same `location`/`locationUpdatedAt` fields as a side effect
+ * of that flow, but a customer may set a preferred location without opting
+ * into Rescue Sale notifications, and vice versa.
+ */
+router.put('/location', async (req, res) => {
+    try {
+        const { latitude, longitude } = req.body;
+
+        if (typeof latitude !== 'number' || typeof longitude !== 'number' ||
+            !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            return res.status(400).json({ error: 'latitude and longitude are required numbers' });
+        }
+        if (latitude < -90 || latitude > 90) {
+            return res.status(400).json({ error: 'latitude must be between -90 and 90' });
+        }
+        if (longitude < -180 || longitude > 180) {
+            return res.status(400).json({ error: 'longitude must be between -180 and 180' });
+        }
+
+        const customer = await Customer.findByIdAndUpdate(
+            req.user.id,
+            {
+                location: { type: 'Point', coordinates: [longitude, latitude] },
+                locationUpdatedAt: new Date(),
+            },
+            { new: true, runValidators: true }
+        ).select('-password');
+
+        if (!customer) {
+            return res.status(404).json({ error: 'Customer not found' });
+        }
+
+        res.json({ success: true, location: customer.location, locationUpdatedAt: customer.locationUpdatedAt });
+    } catch (err) {
+        if (err.name === 'ValidationError') {
+            return res.status(400).json({ error: 'Invalid coordinates' });
+        }
+        console.error('Error updating customer location:', err);
+        res.status(500).json({ error: 'Failed to update location' });
+    }
+});
+
+/**
  * GET /api/customer/vendors
  * Get list of all vendors
  */

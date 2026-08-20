@@ -31,11 +31,13 @@ import {
   getStatusBgColor,
 } from '../../theme';
 import ThemedCard from '../../components/ThemedCard';
+import ThemedButton from '../../components/ThemedButton';
 import {
   SlideInView,
   FadeInView,
   AnimatedPressable,
 } from '../../components/AnimatedComponents';
+import LocationPickerModal from './LocationPickerModal';
 
 const ACTIVE_STATUSES = ['ASSIGNED', 'ACCEPTED', 'IN_TRANSIT'];
 const RECENT_STATUSES = ['COMPLETED', 'CANCELLED', 'REJECTED'];
@@ -148,6 +150,13 @@ const CustomerDashboard = ({ onNavigate }) => {
   const [notifications, setNotifications] = useState([]);
   const [notificationsError, setNotificationsError] = useState(null);
 
+  // Preferred Location — optional prompt, dismissible for this session only
+  // (never persisted as "never ask again"; the customer can still set it
+  // any time from Profile). Never blocks any other part of the dashboard.
+  const [locationPromptDismissed, setLocationPromptDismissed] = useState(false);
+  const [locationModalVisible, setLocationModalVisible] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
+
   const fetchAll = useCallback(async () => {
     const userId = await AsyncStorage.getItem('userId');
 
@@ -193,6 +202,26 @@ const CustomerDashboard = ({ onNavigate }) => {
   const handleOpenShipment = (item) => {
     onNavigate?.('shipmentDetails', { exportId: item._id, exportData: item });
   };
+
+  const handleSaveLocation = async (latitude, longitude) => {
+    setSavingLocation(true);
+    try {
+      await api.put('/api/customer/location', { latitude, longitude });
+      setProfile((prev) => ({
+        ...prev,
+        location: { type: 'Point', coordinates: [longitude, latitude] },
+        locationUpdatedAt: new Date().toISOString(),
+      }));
+      setLocationModalVisible(false);
+    } catch (err) {
+      console.error('Failed to save preferred location:', err);
+    } finally {
+      setSavingLocation(false);
+    }
+  };
+
+  const hasPreferredLocation = Array.isArray(profile?.location?.coordinates)
+    && profile.location.coordinates.length === 2;
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -250,6 +279,39 @@ const CustomerDashboard = ({ onNavigate }) => {
             )}
           </LinearGradient>
         </FadeInView>
+
+        {/* Optional Preferred Location prompt — never blocks anything else */}
+        {!hasPreferredLocation && !locationPromptDismissed && (
+          <FadeInView delay={100} style={styles.section}>
+            <ThemedCard variant="outlined" style={styles.locationPromptCard}>
+              <View style={styles.locationPromptHeader}>
+                <Text style={styles.locationPromptIcon}>📍</Text>
+                <View style={styles.locationPromptTextWrap}>
+                  <Text style={styles.locationPromptTitle}>Set your preferred delivery location</Text>
+                  <Text style={styles.locationPromptSubtitle}>
+                    Optional — helps vendors and rescue sales find you. You can skip this for now.
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.locationPromptActions}>
+                <ThemedButton
+                  title="Set Location"
+                  variant="primary"
+                  size="small"
+                  onPress={() => setLocationModalVisible(true)}
+                  style={{ flex: 1, marginRight: spacing.sm }}
+                />
+                <ThemedButton
+                  title="Skip for now"
+                  variant="ghost"
+                  size="small"
+                  onPress={() => setLocationPromptDismissed(true)}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            </ThemedCard>
+          </FadeInView>
+        )}
 
         {/* Quick Actions */}
         <FadeInView delay={150} style={styles.section}>
@@ -372,6 +434,14 @@ const CustomerDashboard = ({ onNavigate }) => {
 
         <View style={styles.bottomPadding} />
       </ScrollView>
+
+      <LocationPickerModal
+        visible={locationModalVisible}
+        initialCoords={null}
+        onClose={() => setLocationModalVisible(false)}
+        onConfirm={handleSaveLocation}
+        saving={savingLocation}
+      />
     </View>
   );
 };
@@ -433,6 +503,33 @@ const styles = StyleSheet.create({
   section: {
     paddingHorizontal: spacing.md,
     marginTop: spacing.lg,
+  },
+  locationPromptCard: {
+    padding: spacing.md,
+  },
+  locationPromptHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: spacing.sm,
+  },
+  locationPromptIcon: {
+    fontSize: 22,
+    marginRight: spacing.sm,
+  },
+  locationPromptTextWrap: {
+    flex: 1,
+  },
+  locationPromptTitle: {
+    ...typography.bodyMedium,
+    color: colors.text.primary,
+  },
+  locationPromptSubtitle: {
+    ...typography.caption,
+    color: colors.text.muted,
+    marginTop: 2,
+  },
+  locationPromptActions: {
+    flexDirection: 'row',
   },
   sectionHeader: {
     flexDirection: 'row',

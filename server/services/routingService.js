@@ -88,7 +88,7 @@ async function resolveDestinationLabel(latitude, longitude) {
   if (apiKey) {
     try {
       const res = await axios.get(ORS_REVERSE_GEOCODE_URL, {
-        params: { api_key: apiKey, point: `${longitude},${latitude}`, size: 1 },
+        params: { api_key: apiKey, 'point.lat': latitude, 'point.lon': longitude, size: 1 },
         timeout: REQUEST_TIMEOUT_MS,
       });
       const props = res.data?.features?.[0]?.properties;

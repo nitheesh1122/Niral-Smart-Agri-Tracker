@@ -113,7 +113,7 @@ const ExportCard = ({ item, index }) => {
         {/* Header */}
         <View style={styles.exportHeader}>
           <LinearGradient
-            colors={gradients.harvest}
+            colors={gradients.tertiary}
             style={styles.exportIcon}
           >
             <Text style={styles.exportEmoji}>📦</Text>
@@ -368,7 +368,7 @@ export default function ExportManagement() {
       {/* Stats Header */}
       <FadeInView>
         <LinearGradient
-          colors={gradients.harvest}
+          colors={gradients.tertiary}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={styles.statsHeader}

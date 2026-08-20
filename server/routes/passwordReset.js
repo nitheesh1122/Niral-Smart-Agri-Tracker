@@ -191,11 +191,20 @@ router.post('/reset-password', async (req, res) => {
             });
         }
 
-        // Update password
+        // Update password. findByIdAndUpdate would bypass each model's
+        // pre('save') bcrypt hook and write newPassword in plaintext — load
+        // the document and save() instead so it hashes exactly like every
+        // other password write in this codebase.
         const Model = getModelByRole(stored.role);
-        await Model.findByIdAndUpdate(stored.userId, {
-            password: newPassword // In production, hash the password
-        });
+        const user = await Model.findById(stored.userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'Account not found'
+            });
+        }
+        user.password = newPassword;
+        await user.save();
 
         // Clear OTP store
         otpStore.delete(email.toLowerCase());

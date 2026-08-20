@@ -22,7 +22,9 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
+import { useNavigation } from '@react-navigation/native';
 import api from '../../services/api';
+import { useAuth } from '../../../navigation/AuthContext';
 import {
     colors,
     gradients,
@@ -34,6 +36,7 @@ import {
 import ThemedCard from '../../components/ThemedCard';
 import ThemedButton from '../../components/ThemedButton';
 import { SlideInView, FadeInView, AnimatedCounter } from '../../components/AnimatedComponents';
+import LocationPickerModal from './LocationPickerModal';
 
 // ═══════════════════════════════════════════════════════════════════
 // STAT CARD COMPONENT
@@ -100,6 +103,8 @@ const SettingsRow = ({ label, icon, value, onToggle, type = 'switch' }) => (
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 const CustomerProfile = () => {
+    const navigation = useNavigation();
+    const { signOut } = useAuth();
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -116,6 +121,8 @@ const CustomerProfile = () => {
         locationSharing: false,
     });
     const [locationSharingBusy, setLocationSharingBusy] = useState(false);
+    const [locationModalVisible, setLocationModalVisible] = useState(false);
+    const [savingLocation, setSavingLocation] = useState(false);
     const [editData, setEditData] = useState({
         name: '',
         email: '',
@@ -228,6 +235,53 @@ const CustomerProfile = () => {
             setLocationSharingBusy(false);
         }
     };
+
+    // Customer Preferred Location — independent of Rescue Sale opt-in above.
+    // Reuses the same Customer.location/locationUpdatedAt fields (and the
+    // same map component) rather than a parallel location system; setting
+    // this does not enable Rescue Sale notifications, and toggling those
+    // off does not clear this.
+    const handleSaveLocation = async (latitude, longitude) => {
+        setSavingLocation(true);
+        try {
+            await api.put('/api/customer/location', { latitude, longitude });
+            setCustomer((prev) => ({
+                ...prev,
+                location: { type: 'Point', coordinates: [longitude, latitude] },
+                locationUpdatedAt: new Date().toISOString(),
+            }));
+            setLocationModalVisible(false);
+            Alert.alert('Saved', 'Your preferred delivery location has been saved.');
+        } catch (err) {
+            console.error('Failed to save preferred location:', err);
+            Alert.alert('Error', err.message || 'Failed to save location. Please try again.');
+        } finally {
+            setSavingLocation(false);
+        }
+    };
+
+    // Uses the same signOut() the sidebar's logout already uses — no
+    // separate logout implementation.
+    const handleLogout = () => {
+        Alert.alert(
+            'Logout',
+            'Are you sure you want to logout?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Logout',
+                    style: 'destructive',
+                    onPress: async () => {
+                        await AsyncStorage.clear();
+                        signOut();
+                    },
+                },
+            ]
+        );
+    };
+
+    const savedCoords = customer?.location?.coordinates;
+    const hasPreferredLocation = Array.isArray(savedCoords) && savedCoords.length === 2;
 
     const getInitials = (name) => {
         return name
@@ -426,6 +480,50 @@ const CustomerProfile = () => {
                     </ThemedCard>
                 </FadeInView>
 
+                {/* Preferred Delivery Location Card */}
+                <FadeInView delay={150}>
+                    <ThemedCard variant="elevated" style={styles.sectionCard}>
+                        <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionTitle}>Preferred Delivery Location</Text>
+                        </View>
+                        <InfoRow
+                            icon="📍"
+                            label="Saved Location"
+                            value={
+                                hasPreferredLocation
+                                    ? `${savedCoords[1].toFixed(5)}, ${savedCoords[0].toFixed(5)}`
+                                    : null
+                            }
+                        />
+                        <ThemedButton
+                            title={hasPreferredLocation ? 'Change Location' : 'Set Location'}
+                            variant="outline"
+                            onPress={() => setLocationModalVisible(true)}
+                            fullWidth
+                            style={{ marginTop: spacing.sm }}
+                        />
+                    </ThemedCard>
+                </FadeInView>
+
+                {/* Account Card */}
+                <FadeInView delay={175}>
+                    <ThemedCard variant="elevated" style={styles.sectionCard}>
+                        <Text style={styles.sectionTitle}>Account</Text>
+                        <SettingsRow
+                            icon="🔔"
+                            label="Notifications"
+                            type="arrow"
+                            onToggle={() => navigation.navigate('Notifications')}
+                        />
+                        <SettingsRow
+                            icon="⚙️"
+                            label="Settings"
+                            type="arrow"
+                            onToggle={() => navigation.navigate('Settings')}
+                        />
+                    </ThemedCard>
+                </FadeInView>
+
                 {/* Settings Card */}
                 <FadeInView delay={200}>
                     <ThemedCard variant="elevated" style={styles.sectionCard}>
@@ -487,6 +585,17 @@ const CustomerProfile = () => {
                     </ThemedCard>
                 </FadeInView>
 
+                {/* Log Out */}
+                <FadeInView delay={350}>
+                    <ThemedButton
+                        title="Log Out"
+                        variant="danger"
+                        fullWidth
+                        onPress={handleLogout}
+                        style={styles.logoutButton}
+                    />
+                </FadeInView>
+
                 {/* App Info */}
                 <FadeInView delay={400}>
                     <View style={styles.appInfo}>
@@ -497,6 +606,18 @@ const CustomerProfile = () => {
 
                 <View style={styles.bottomPadding} />
             </ScrollView>
+
+            <LocationPickerModal
+                visible={locationModalVisible}
+                initialCoords={
+                    hasPreferredLocation
+                        ? { latitude: savedCoords[1], longitude: savedCoords[0] }
+                        : null
+                }
+                onClose={() => setLocationModalVisible(false)}
+                onConfirm={handleSaveLocation}
+                saving={savingLocation}
+            />
         </KeyboardAvoidingView>
     );
 };
@@ -607,6 +728,10 @@ const styles = StyleSheet.create({
         marginTop: spacing.xxs,
     },
     sectionCard: {
+        marginHorizontal: spacing.md,
+        marginBottom: spacing.md,
+    },
+    logoutButton: {
         marginHorizontal: spacing.md,
         marginBottom: spacing.md,
     },

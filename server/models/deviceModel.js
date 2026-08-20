@@ -16,6 +16,12 @@ const sensorDataSchema = new mongoose.Schema({
 const deviceSchema = new mongoose.Schema({
   deviceName: { type: String, required: true, unique: true },
 
+  // Ownership: the Vendor who registered this device. deviceName remains
+  // the sole join key the external IoT hardware writer and the telemetry
+  // read routes use — this field is ownership metadata only, never part of
+  // that lookup.
+  vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', required: true },
+
   deviceLocation: {
     type: [locationSchema],
     default: []
@@ -46,6 +52,7 @@ const deviceSchema = new mongoose.Schema({
 });
 
 deviceSchema.index({ vehicle: 1 });
+deviceSchema.index({ vendor: 1, isAssigned: 1 });
 
 const Device = mongoose.model('Device', deviceSchema);
 module.exports = Device;

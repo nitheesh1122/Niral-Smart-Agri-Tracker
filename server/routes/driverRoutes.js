@@ -50,27 +50,57 @@ router.get('/profile/:driverId', async (req, res) => {
 
 // backend route
 
+// Diagnostic-only classifier (Stage 12 incident triage) — turns an axios
+// error into one of the categories ops needs to distinguish (timeout / DNS /
+// connection refused / HTTP status / malformed response), without ever
+// touching request credentials.
+function classifyGeocodeError(err) {
+  if (err.code === 'ECONNABORTED') return 'timeout';
+  if (err.code === 'ENOTFOUND' || err.code === 'EAI_AGAIN') return 'DNS failure';
+  if (err.code === 'ECONNREFUSED') return 'connection refused';
+  if (err.response) {
+    const { status } = err.response;
+    if (status === 401) return 'HTTP 401 (invalid/missing API key)';
+    if (status === 403) return 'HTTP 403 (forbidden)';
+    if (status === 429) return 'HTTP 429 (rate limited)';
+    if (status >= 500) return `HTTP ${status} (upstream server error)`;
+    return `HTTP ${status}`;
+  }
+  if (err instanceof SyntaxError) return 'JSON parsing failure';
+  if (err.request) return `no response (${err.code || 'network error'})`;
+  return err.message || 'unknown error';
+}
+
 async function reverseGeocode(lat, lon, apiKey) {
+  let orsFailureReason = 'not attempted';
   try {
-    // Try ORS reverse geocoding first
-    const orsRes = await axios.get('https://api.openrouteservice.org/geocode/reverse', {
-      params: {
-        api_key: apiKey,
-        point: `${lon},${lat}`,
-        size: 1,
-      },
-    });
+    if (!apiKey) {
+      orsFailureReason = 'missing API key';
+    } else {
+      // Try ORS reverse geocoding first
+      const orsRes = await axios.get('https://api.openrouteservice.org/geocode/reverse', {
+        params: {
+          api_key: apiKey,
+          'point.lat': lat,
+          'point.lon': lon,
+          size: 1,
+        },
+        timeout: 8000,
+      });
 
-    const locality =
-      orsRes.data.features[0]?.properties?.locality ||
-      orsRes.data.features[0]?.properties?.county ||
-      orsRes.data.features[0]?.properties?.region;
+      const locality =
+        orsRes.data.features[0]?.properties?.locality ||
+        orsRes.data.features[0]?.properties?.county ||
+        orsRes.data.features[0]?.properties?.region;
 
-    if (locality) return locality;
-  } catch {
-    // Ignore ORS failure
+      if (locality) return locality;
+      orsFailureReason = 'no locality in response (empty/incomplete features)';
+    }
+  } catch (err) {
+    orsFailureReason = classifyGeocodeError(err);
   }
 
+  let nominatimFailureReason = 'not attempted';
   try {
     // Fallback: Try Nominatim reverse geocoding
     const nominatimRes = await axios.get('https://nominatim.openstreetmap.org/reverse', {
@@ -84,14 +114,21 @@ async function reverseGeocode(lat, lon, apiKey) {
       headers: {
         'User-Agent': 'FreshGoods/1.0 (tharunkumarm.23cse@kongu.edu)',
       },
+      timeout: 8000,
     });
 
     const address = nominatimRes.data.address;
-    return address?.county || address?.state || address?.region || address?.city;
-  } catch {
-    console.warn('Both ORS and Nominatim failed at', lat, lon);
-    return null;
+    const result = address?.county || address?.state || address?.region || address?.city;
+    if (result) return result;
+    nominatimFailureReason = 'no address fields in response';
+  } catch (err) {
+    nominatimFailureReason = classifyGeocodeError(err);
   }
+
+  console.warn(
+    `Both ORS and Nominatim failed at ${lat} ${lon} | ORS: ${orsFailureReason} | Nominatim: ${nominatimFailureReason}`
+  );
+  return null;
 }
 
 async function getDistrictsBetween(start, end) {

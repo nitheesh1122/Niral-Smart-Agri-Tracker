@@ -3,7 +3,7 @@
  * Premium driver management with modern UI
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
 import {
   colors,
@@ -37,9 +38,9 @@ import { SlideInView, FadeInView } from '../../components/AnimatedComponents';
 // ═══════════════════════════════════════════════════════════════════
 // DRIVER CARD COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-const DriverCard = ({ driver, onRemove, index }) => (
+const DriverCard = ({ driver, onRemove, onPress, index }) => (
   <SlideInView delay={index * 80}>
-    <ThemedCard variant="elevated" style={styles.driverCard}>
+    <ThemedCard variant="elevated" style={styles.driverCard} onPress={onPress}>
       {/* Remove button */}
       <TouchableOpacity
         style={styles.removeButton}
@@ -118,8 +119,11 @@ const AddDriverModal = ({ visible, onClose, onCreate, creating }) => {
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.modalOverlay}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={styles.modalOverlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
         <View style={styles.modalContent}>
           {/* Header */}
           <View style={styles.modalHeader}>
@@ -130,33 +134,36 @@ const AddDriverModal = ({ visible, onClose, onCreate, creating }) => {
             <View style={{ width: 40 }} />
           </View>
 
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-            <ScrollView style={styles.formContainer} keyboardShouldPersistTaps="handled">
-              <Text style={styles.formHint}>
-                Creates a new driver account under your team. Share the username and password with your driver.
-              </Text>
-              <TextInput style={styles.formInput} placeholder="Full name" placeholderTextColor={colors.text.muted} value={form.name} onChangeText={setField('name')} />
-              <TextInput style={styles.formInput} placeholder="Username" placeholderTextColor={colors.text.muted} value={form.username} onChangeText={setField('username')} autoCapitalize="none" />
-              <TextInput style={styles.formInput} placeholder="Email" placeholderTextColor={colors.text.muted} value={form.email} onChangeText={setField('email')} keyboardType="email-address" autoCapitalize="none" />
-              <TextInput style={styles.formInput} placeholder="Mobile number" placeholderTextColor={colors.text.muted} value={form.mobile} onChangeText={setField('mobile')} keyboardType="phone-pad" />
-              <TextInput style={styles.formInput} placeholder="Temporary password" placeholderTextColor={colors.text.muted} value={form.password} onChangeText={setField('password')} secureTextEntry />
-              <TextInput style={styles.formInput} placeholder="License number" placeholderTextColor={colors.text.muted} value={form.licenseNo} onChangeText={setField('licenseNo')} />
-              <TextInput style={styles.formInput} placeholder="State" placeholderTextColor={colors.text.muted} value={form.state} onChangeText={setField('state')} />
-              <TextInput style={styles.formInput} placeholder="District" placeholderTextColor={colors.text.muted} value={form.district} onChangeText={setField('district')} />
+          <ScrollView
+            style={styles.formContainer}
+            contentContainerStyle={styles.formContentContainer}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={styles.formHint}>
+              Creates a new driver account under your team. Share the username and password with your driver.
+            </Text>
+            <TextInput style={styles.formInput} placeholder="Full name" placeholderTextColor={colors.text.muted} value={form.name} onChangeText={setField('name')} />
+            <TextInput style={styles.formInput} placeholder="Username" placeholderTextColor={colors.text.muted} value={form.username} onChangeText={setField('username')} autoCapitalize="none" />
+            <TextInput style={styles.formInput} placeholder="Email" placeholderTextColor={colors.text.muted} value={form.email} onChangeText={setField('email')} keyboardType="email-address" autoCapitalize="none" />
+            <TextInput style={styles.formInput} placeholder="Mobile number" placeholderTextColor={colors.text.muted} value={form.mobile} onChangeText={setField('mobile')} keyboardType="phone-pad" />
+            <TextInput style={styles.formInput} placeholder="Temporary password" placeholderTextColor={colors.text.muted} value={form.password} onChangeText={setField('password')} secureTextEntry />
+            <TextInput style={styles.formInput} placeholder="License number" placeholderTextColor={colors.text.muted} value={form.licenseNo} onChangeText={setField('licenseNo')} />
+            <TextInput style={styles.formInput} placeholder="State" placeholderTextColor={colors.text.muted} value={form.state} onChangeText={setField('state')} />
+            <TextInput style={styles.formInput} placeholder="District" placeholderTextColor={colors.text.muted} value={form.district} onChangeText={setField('district')} />
 
-              <ThemedButton
-                title={creating ? 'Creating...' : 'Create Driver'}
-                variant="gradient"
-                onPress={handleSubmit}
-                loading={creating}
-                disabled={creating}
-                fullWidth
-                style={{ marginTop: spacing.md, marginBottom: spacing.xl }}
-              />
-            </ScrollView>
-          </KeyboardAvoidingView>
+            <ThemedButton
+              title={creating ? 'Creating...' : 'Create Driver'}
+              variant="gradient"
+              onPress={handleSubmit}
+              loading={creating}
+              disabled={creating}
+              fullWidth
+              style={{ marginTop: spacing.md, marginBottom: spacing.xl }}
+            />
+          </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
@@ -164,7 +171,7 @@ const AddDriverModal = ({ visible, onClose, onCreate, creating }) => {
 // ═══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════
-const DriverManagement = () => {
+const DriverManagement = ({ navigation }) => {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -223,9 +230,11 @@ const DriverManagement = () => {
     );
   };
 
-  useEffect(() => {
-    fetchDrivers();
-  }, [fetchDrivers]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchDrivers();
+    }, [fetchDrivers])
+  );
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -272,6 +281,7 @@ const DriverManagement = () => {
             driver={item}
             index={index}
             onRemove={handleRemoveDriver}
+            onPress={() => navigation.navigate('DriverDetails', { driver: item })}
           />
         )}
         contentContainerStyle={styles.listContent}
@@ -509,6 +519,9 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     paddingHorizontal: spacing.md,
+  },
+  formContentContainer: {
+    paddingBottom: spacing.xl,
   },
   formHint: {
     ...typography.bodySmall,

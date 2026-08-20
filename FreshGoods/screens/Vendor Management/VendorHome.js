@@ -1,12 +1,25 @@
 /**
  * VendorHome.js
- * Updated vendor container with enhanced navigation
+ * Vendor role navigator: bottom tabs (Dashboard / Shipments / Fleet /
+ * Rescue) for primary destinations, each with its own nested stack for real
+ * back-history; Analytics/Service Requests/Create Export/both chat modes/
+ * Notifications/Settings stay on the outer stack, reached from the
+ * (unchanged) SidebarMenu drawer. Visuals are unchanged — every screen below
+ * is the same component that rendered under the old activeSection switch;
+ * only how you reach it changed.
+ *
+ * HeaderMenuContext shares the role-root's renderHeader (AppHeader +
+ * hamburger) with every inner tab stack — each bottom tab owns its own
+ * nested Stack.Navigator for real back-history, so the header has to be
+ * wired to each of them individually, not just the outer stack.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext, createContext } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 // Management sub‑pages
 import DriverManagement from './components/DriverManagement';
@@ -17,6 +30,11 @@ import ServiceRequestManager from './components/ServiceRequestManager';
 import VendorExportDashboard from './components/VendorExportDashboard';
 import VendorAnalytics from './components/VendorAnalytics';
 import VendorRescueSales from './components/VendorRescueSales';
+import FleetHome from './components/FleetHome';
+import VehicleDetails from './components/VehicleDetails';
+import DriverDetails from './components/DriverDetails';
+import DeviceManagement from './components/DeviceManagement';
+import GoodsHealthScreen from './components/GoodsHealthScreen';
 
 // Chat helpers
 import CustomerSelectList from './components/CustomerSelectionList';
@@ -30,37 +48,123 @@ import SettingsScreen from '../components/SettingsScreen';
 import NotificationCenter from '../components/NotificationCenter';
 import { colors } from '../theme';
 
+// Bottom tabs — the primary, high-frequency destinations
+const TAB_ICONS = { DashboardTab: '🏠', ShipmentsTab: '📊', FleetTab: '🚗', RescueTab: '🚨' };
+const TAB_LABELS = { DashboardTab: 'Dashboard', ShipmentsTab: 'Shipments', FleetTab: 'Fleet', RescueTab: 'Rescue' };
+
+// Sidebar — secondary items
 const MENU_ITEMS = [
-  { id: 'home', label: 'Home', icon: '🏠' },
-  { id: 'exportDashboard', label: 'Export Dashboard', icon: '📊' },
-  { id: 'rescueSales', label: 'Rescue Sales', icon: '🚨' },
-  { id: 'analytics', label: 'Analytics', icon: '📈' },
-  { id: 'serviceRequests', label: 'Service Requests', icon: '📋' },
-  { id: 'driver', label: 'Driver Management', icon: '👨‍✈️' },
-  { id: 'vehicle', label: 'Vehicle Management', icon: '🚗' },
-  { id: 'export', label: 'Create Export', icon: '📦' },
-  { id: 'customerChat', label: 'Chat with Customers', icon: '💬' },
-  { id: 'driverChat', label: 'Chat with Drivers', icon: '🗣️' },
-  { id: 'notifications', label: 'Notifications', icon: '🔔' },
-  { id: 'settings', label: 'Settings', icon: '⚙️' },
+  { id: 'Analytics', label: 'Analytics', icon: '📈' },
+  { id: 'GoodsHealth', label: 'Goods Health', icon: '🍏' },
+  { id: 'ServiceRequests', label: 'Service Requests', icon: '📋' },
+  { id: 'CreateExport', label: 'Create Export', icon: '📦' },
+  { id: 'CustomerChatSelect', label: 'Chat with Customers', icon: '💬' },
+  { id: 'DriverChatSelect', label: 'Chat with Drivers', icon: '🗣️' },
+  { id: 'Notifications', label: 'Notifications', icon: '🔔' },
+  { id: 'Settings', label: 'Settings', icon: '⚙️' },
 ];
+
+const Tab = createBottomTabNavigator();
+const OuterStack = createNativeStackNavigator();
+const DashboardTabStack = createNativeStackNavigator();
+const ShipmentsTabStack = createNativeStackNavigator();
+const FleetTabStack = createNativeStackNavigator();
+const RescueTabStack = createNativeStackNavigator();
+
+const HeaderMenuButton = ({ onPress }) => (
+  <TouchableOpacity onPress={onPress} style={styles.menuButton}>
+    <Text style={styles.menuIcon}>☰</Text>
+  </TouchableOpacity>
+);
+
+const HeaderMenuContext = createContext(null);
+
+const DashboardTabNavigator = () => {
+  const renderHeader = useContext(HeaderMenuContext);
+  return (
+    <DashboardTabStack.Navigator screenOptions={{ header: renderHeader }}>
+      <DashboardTabStack.Screen name="Dashboard" options={{ title: 'Home' }}>
+        {({ navigation }) => (
+          <VendorHomePlaceHolder
+            onChatWithDriver={(id, name) => navigation.navigate('DriverChatConversation', { targetId: id, targetName: name })}
+          />
+        )}
+      </DashboardTabStack.Screen>
+    </DashboardTabStack.Navigator>
+  );
+};
+
+const ShipmentsTabNavigator = () => {
+  const renderHeader = useContext(HeaderMenuContext);
+  return (
+    <ShipmentsTabStack.Navigator screenOptions={{ header: renderHeader }}>
+      <ShipmentsTabStack.Screen name="ExportDashboard" options={{ title: 'Export Dashboard' }}>
+        {({ navigation }) => (
+          <VendorExportDashboard
+            onChatWithDriver={(id, name) => navigation.navigate('DriverChatConversation', { targetId: id, targetName: name })}
+          />
+        )}
+      </ShipmentsTabStack.Screen>
+    </ShipmentsTabStack.Navigator>
+  );
+};
+
+const FleetTabNavigator = () => {
+  const renderHeader = useContext(HeaderMenuContext);
+  return (
+    <FleetTabStack.Navigator screenOptions={{ header: renderHeader }}>
+      <FleetTabStack.Screen name="FleetHome" component={FleetHome} options={{ title: 'Fleet' }} />
+      <FleetTabStack.Screen name="Drivers" component={DriverManagement} options={{ title: 'Driver Management' }} />
+      <FleetTabStack.Screen name="Vehicles" component={VehicleManagement} options={{ title: 'Vehicle Management' }} />
+      <FleetTabStack.Screen name="Devices" component={DeviceManagement} options={{ title: 'Devices' }} />
+      <FleetTabStack.Screen
+        name="VehicleDetails"
+        component={VehicleDetails}
+        options={({ route }) => ({ title: route.params?.vehicle?.vehicleNumber || 'Vehicle Details' })}
+      />
+      <FleetTabStack.Screen
+        name="DriverDetails"
+        component={DriverDetails}
+        options={({ route }) => ({ title: route.params?.driver?.name || 'Driver Details' })}
+      />
+    </FleetTabStack.Navigator>
+  );
+};
+
+const RescueTabNavigator = () => {
+  const renderHeader = useContext(HeaderMenuContext);
+  return (
+    <RescueTabStack.Navigator screenOptions={{ header: renderHeader }}>
+      <RescueTabStack.Screen name="RescueSales" component={VendorRescueSales} options={{ title: 'Rescue Sales' }} />
+    </RescueTabStack.Navigator>
+  );
+};
+
+const VendorTabs = () => (
+  <Tab.Navigator
+    screenOptions={({ route }) => ({
+      headerShown: false,
+      tabBarActiveTintColor: colors.primary,
+      tabBarInactiveTintColor: colors.text.muted,
+      tabBarIcon: () => <Text style={{ fontSize: 20 }}>{TAB_ICONS[route.name]}</Text>,
+      tabBarLabel: TAB_LABELS[route.name],
+    })}
+  >
+    <Tab.Screen name="DashboardTab" component={DashboardTabNavigator} />
+    <Tab.Screen name="ShipmentsTab" component={ShipmentsTabNavigator} />
+    <Tab.Screen name="FleetTab" component={FleetTabNavigator} />
+    <Tab.Screen name="RescueTab" component={RescueTabNavigator} />
+  </Tab.Navigator>
+);
 
 const VendorHome = () => {
   const navigation = useNavigation();
-
-  // State
-  const [activeSection, setActiveSection] = useState('home');
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [userName, setUserName] = useState('Vendor');
   const [userEmail, setUserEmail] = useState('');
-
-  // Chat state
   const [vendorId, setVendorId] = useState(null);
-  const [chatMode, setChatMode] = useState(null);
-  const [chatTargetId, setChatTargetId] = useState(null);
-  const [chatTargetName, setChatTargetName] = useState('');
+  const [activeRoute, setActiveRoute] = useState('VendorTabs');
 
-  // Get user data
   useEffect(() => {
     const fetchData = async () => {
       const id = await AsyncStorage.getItem('userId');
@@ -73,147 +177,106 @@ const VendorHome = () => {
     fetchData();
   }, []);
 
-  // Reset chat state
-  const resetChat = () => {
-    setChatTargetId(null);
-    setChatTargetName('');
-    setChatMode(null);
-  };
-
-  const startChat = (mode, id, name) => {
-    setChatMode(mode);
-    setChatTargetId(id);
-    setChatTargetName(name);
-  };
-
-  // Get page title
-  const getPageTitle = () => {
-    if (
-      (activeSection === 'customerChat' || activeSection === 'driverChat') &&
-      chatTargetName
-    ) {
-      return `Chat with ${chatTargetName}`;
-    }
-    const item = MENU_ITEMS.find((m) => m.id === activeSection);
-    return item ? item.label : 'Home';
-  };
-
-  // Render content
-  const renderContent = () => {
-    // Chat with target selected
-    if (
-      (activeSection === 'customerChat' || activeSection === 'driverChat') &&
-      chatTargetId
-    ) {
-      return (
-        <VendorChat
-          vendorId={vendorId}
-          chatType={chatMode}
-          targetId={chatTargetId}
-          targetName={chatTargetName}
-          onBack={resetChat}
-        />
-      );
-    }
-
-    // Selector lists (no target yet)
-    if (activeSection === 'customerChat') {
-      return (
-        <CustomerSelectList
-          onSelectCustomer={(id, name) => startChat('customer', id, name)}
-        />
-      );
-    }
-    if (activeSection === 'driverChat') {
-      return (
-        <DriverSelectList
-          onSelect={(id, name) => startChat('driver', id, name)}
-        />
-      );
-    }
-
-    // Management sub‑pages
-    switch (activeSection) {
-      case 'exportDashboard':
-        return (
-          <VendorExportDashboard
-            onChatWithDriver={(id, name) => {
-              startChat('driver', id, name);
-              setActiveSection('driverChat');
-            }}
-          />
-        );
-      case 'rescueSales':
-        return <VendorRescueSales />;
-      case 'analytics':
-        return <VendorAnalytics onBack={() => setActiveSection('home')} />;
-      case 'serviceRequests':
-        return <ServiceRequestManager vendorId={vendorId} />;
-      case 'driver':
-        return <DriverManagement />;
-      case 'vehicle':
-        return <VehicleManagement />;
-      case 'export':
-        return <ExportManagement />;
-      case 'notifications':
-        return <NotificationCenter onBack={() => setActiveSection('home')} />;
-      case 'settings':
-        return <SettingsScreen onBack={() => setActiveSection('home')} />;
-      default:
-        return (
-          <VendorHomePlaceHolder
-            onChatWithDriver={(id, name) => {
-              startChat('driver', id, name);
-              setActiveSection('driverChat');
-            }}
-          />
-        );
-    }
-  };
-
-  const showBackButton =
-    (activeSection === 'customerChat' || activeSection === 'driverChat') &&
-    chatTargetId;
+  const renderHeader = (props) => (
+    <AppHeader
+      title={props.options.title || 'Home'}
+      subtitle="Vendor"
+      showBack={props.back}
+      onBack={() => props.navigation.goBack()}
+      rightComponent={!props.back ? <HeaderMenuButton onPress={() => setIsMenuVisible(true)} /> : null}
+    />
+  );
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <AppHeader
-        title={getPageTitle()}
-        subtitle="Vendor"
-        showBack={showBackButton}
-        onBack={resetChat}
-        rightComponent={
-          !showBackButton ? (
-            <TouchableOpacity
-              onPress={() => setIsMenuVisible(true)}
-              style={styles.menuButton}
-            >
-              <Text style={styles.menuIcon}>☰</Text>
-            </TouchableOpacity>
-          ) : null
-        }
-      />
+    <HeaderMenuContext.Provider value={renderHeader}>
+      <View style={styles.container}>
+        <OuterStack.Navigator
+          screenOptions={{ header: renderHeader }}
+          screenListeners={{
+            state: (e) => {
+              const routes = e.data?.state?.routes;
+              if (routes?.length) setActiveRoute(routes[routes.length - 1].name);
+            },
+          }}
+        >
+          <OuterStack.Screen name="VendorTabs" component={VendorTabs} options={{ headerShown: false }} />
+          <OuterStack.Screen name="Analytics" options={{ title: 'Analytics', headerShown: false }}>
+            {({ navigation }) => <VendorAnalytics onBack={() => navigation.goBack()} />}
+          </OuterStack.Screen>
+          <OuterStack.Screen name="GoodsHealth" component={GoodsHealthScreen} options={{ title: 'Goods Health' }} />
+          <OuterStack.Screen name="ServiceRequests" options={{ title: 'Service Requests' }}>
+            {() => <ServiceRequestManager vendorId={vendorId} />}
+          </OuterStack.Screen>
+          <OuterStack.Screen name="CreateExport" component={ExportManagement} options={{ title: 'Create Export' }} />
+          <OuterStack.Screen name="CustomerChatSelect" options={{ title: 'Chat with Customers' }}>
+            {({ navigation }) => (
+              <CustomerSelectList
+                vendorId={vendorId}
+                onSelectCustomer={(id, name) => navigation.navigate('CustomerChatConversation', { targetId: id, targetName: name })}
+              />
+            )}
+          </OuterStack.Screen>
+          <OuterStack.Screen
+            name="CustomerChatConversation"
+            options={({ route }) => ({
+              title: route.params?.targetName ? `Chat with ${route.params.targetName}` : 'Chat',
+              headerShown: false,
+            })}
+          >
+            {({ route, navigation }) => (
+              <VendorChat
+                chatType="customer"
+                targetId={route.params?.targetId}
+                targetName={route.params?.targetName}
+                onBack={() => navigation.goBack()}
+              />
+            )}
+          </OuterStack.Screen>
+          <OuterStack.Screen name="DriverChatSelect" options={{ title: 'Chat with Drivers' }}>
+            {({ navigation }) => (
+              <DriverSelectList
+                vendorId={vendorId}
+                onSelect={(id, name) => navigation.navigate('DriverChatConversation', { targetId: id, targetName: name })}
+              />
+            )}
+          </OuterStack.Screen>
+          <OuterStack.Screen
+            name="DriverChatConversation"
+            options={({ route }) => ({
+              title: route.params?.targetName ? `Chat with ${route.params.targetName}` : 'Chat',
+              headerShown: false,
+            })}
+          >
+            {({ route, navigation }) => (
+              <VendorChat
+                chatType="driver"
+                targetId={route.params?.targetId}
+                targetName={route.params?.targetName}
+                onBack={() => navigation.goBack()}
+              />
+            )}
+          </OuterStack.Screen>
+          <OuterStack.Screen name="Notifications" options={{ title: 'Notifications', headerShown: false }}>
+            {({ navigation }) => <NotificationCenter onBack={() => navigation.goBack()} />}
+          </OuterStack.Screen>
+          <OuterStack.Screen name="Settings" options={{ title: 'Settings', headerShown: false }}>
+            {({ navigation }) => <SettingsScreen onBack={() => navigation.goBack()} />}
+          </OuterStack.Screen>
+        </OuterStack.Navigator>
 
-      {/* Main content */}
-      <View style={styles.mainContent}>{renderContent()}</View>
-
-      {/* Sidebar Menu */}
-      <SidebarMenu
-        isVisible={isMenuVisible}
-        onClose={() => setIsMenuVisible(false)}
-        menuItems={MENU_ITEMS}
-        activeItem={activeSection}
-        onItemPress={(id) => {
-          resetChat();
-          setActiveSection(id);
-        }}
-        navigation={navigation}
-        userName={userName}
-        userEmail={userEmail}
-        userRole="Vendor"
-      />
-    </View>
+        <SidebarMenu
+          isVisible={isMenuVisible}
+          onClose={() => setIsMenuVisible(false)}
+          menuItems={MENU_ITEMS}
+          activeItem={activeRoute}
+          onItemPress={(id) => navigation.navigate('VendorRoot', { screen: id })}
+          navigation={navigation}
+          userName={userName}
+          userEmail={userEmail}
+          userRole="Vendor"
+        />
+      </View>
+    </HeaderMenuContext.Provider>
   );
 };
 
@@ -223,9 +286,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background.primary,
-  },
-  mainContent: {
-    flex: 1,
   },
   menuButton: {
     width: 40,

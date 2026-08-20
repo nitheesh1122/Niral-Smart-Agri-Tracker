@@ -23,12 +23,24 @@ const vehicleSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  // Optional as of the Fleet Device Architecture stage — a vehicle can now
+  // exist without a device (added at creation, or later via Assign
+  // Device). `sparse: true` is required alongside `unique: true` so that
+  // multiple vehicles with no device don't collide on a shared `null` in
+  // the unique index — only documents that actually have this field set
+  // participate in the uniqueness check.
   deviceId: {
     type: String,
-    required: true,
+    required: false,
     unique: true,
+    sparse: true,
     trim: true
   },
+
+  // Back-reference to the standing driver assignment. Driver.vehicle is
+  // the forward direction (set by POST /assign-driver-vehicle); this is
+  // the convenience back-ref, same pattern as `device` below.
+  driver: { type: mongoose.Schema.Types.ObjectId, ref: 'Driver', default: null },
 
   // Back-reference to the owning vendor. Vendor.vehicles already tracks the
   // forward direction; this lets a Vehicle be looked up without going

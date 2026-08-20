@@ -34,7 +34,10 @@ router.use(authorize('Vendor'));
 // GET /api/vendor/all — the calling vendor's own drivers.
 router.get('/all', async (req, res) => {
   try {
-    const vendor = await Vendor.findById(req.user.id).populate('drivers');
+    const vendor = await Vendor.findById(req.user.id).populate({
+      path: 'drivers',
+      populate: { path: 'vehicle', select: 'vehicleNumber brand capacity deviceId' },
+    });
     if (!vendor) {
       return res.status(404).json({ error: 'Vendor not found' });
     }
@@ -145,7 +148,13 @@ router.get('/vehicles', async (req, res) => {
   }
 
   try {
-    const vendor = await Vendor.findById(vendorId).populate('vehicles');
+    const vendor = await Vendor.findById(req.user.id).populate({
+      path: 'vehicles',
+      populate: [
+        { path: 'driver', select: 'name mobileNo' },
+        { path: 'device' },
+      ],
+    });
     if (!vendor) return res.status(404).json({ message: 'Vendor not found' });
 
     res.json(vendor.vehicles || []);
@@ -154,22 +163,141 @@ router.get('/vehicles', async (req, res) => {
   }
 });
 
-// ✅ Get all available devices (not yet assigned)
-router.get('/available-devices', async (req, res) => {
+// All of the authenticated vendor's own devices — available and assigned
+// — for the Device Management screen. Populates which vehicle a device is
+// on, if any.
+router.get('/devices', async (req, res) => {
   try {
-    const devices = await Device.find({ isAssigned: false });
+    const devices = await Device.find({ vendor: req.user.id })
+      .populate({ path: 'vehicle', select: 'vehicleNumber' })
+      .sort({ createdAt: -1 });
     res.json(devices);
   } catch (err) {
     res.status(500).json({ message: 'Error fetching devices', error: err.message });
   }
 });
 
-// ✅ Add a vehicle and assign to vendor
+// Get all of the authenticated vendor's own devices that are not yet
+// assigned to a vehicle. Devices are Vendor-owned (Device.vendor) — this
+// never returns another vendor's devices, registered or assigned.
+router.get('/available-devices', async (req, res) => {
+  try {
+    const devices = await Device.find({ vendor: req.user.id, isAssigned: false });
+    res.json(devices);
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching devices', error: err.message });
+  }
+});
+
+// Register a new Device under the authenticated vendor. vendor is always
+// req.user.id — never trusted from the request body. deviceName stays the
+// unique identifier the external IoT hardware writer matches on; that
+// uniqueness is global (enforced by the schema), ownership is per-vendor.
+router.post('/register-device', async (req, res) => {
+  const { deviceName } = req.body;
+
+  if (!deviceName || !deviceName.trim()) {
+    return res.status(400).json({ message: 'deviceName is required' });
+  }
+
+  try {
+    const device = new Device({
+      deviceName: deviceName.trim(),
+      vendor: req.user.id,
+      isAssigned: false,
+    });
+    await device.save();
+    res.status(201).json({ message: 'Device registered', device });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ message: 'That device name is already registered.' });
+    }
+    res.status(500).json({ message: 'Error registering device', error: err.message });
+  }
+});
+
+// Assign an available, vendor-owned device to a vendor-owned vehicle that
+// doesn't already have one. Rejects any cross-vendor vehicle/device and any
+// device that's already assigned elsewhere — never silently reassigns.
+router.post('/assign-device', async (req, res) => {
+  const { vehicleId, deviceName } = req.body;
+
+  if (!vehicleId || !deviceName) {
+    return res.status(400).json({ message: 'vehicleId and deviceName are required' });
+  }
+
+  try {
+    const vehicle = await Vehicle.findById(vehicleId);
+    if (!vehicle || !vehicle.vendor || vehicle.vendor.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied. That vehicle is not yours.' });
+    }
+    if (vehicle.deviceId) {
+      return res.status(400).json({ message: 'This vehicle already has a device. Remove it first.' });
+    }
+
+    const device = await Device.findOne({ deviceName, vendor: req.user.id, isAssigned: false });
+    if (!device) {
+      return res.status(400).json({ message: 'Device not found, not yours, or already assigned.' });
+    }
+
+    vehicle.deviceId = device.deviceName;
+    vehicle.device = device._id;
+    await vehicle.save();
+
+    device.isAssigned = true;
+    device.vehicle = vehicle._id;
+    await device.save();
+
+    res.json({ message: 'Device assigned to vehicle', vehicle, device });
+  } catch (err) {
+    res.status(500).json({ message: 'Error assigning device', error: err.message });
+  }
+});
+
+// Detach the device currently on a vendor-owned vehicle. The device becomes
+// available again — it is never deleted, it's a reusable asset.
+router.post('/unassign-device', async (req, res) => {
+  const { vehicleId } = req.body;
+
+  if (!vehicleId) {
+    return res.status(400).json({ message: 'vehicleId is required' });
+  }
+
+  try {
+    const vehicle = await Vehicle.findById(vehicleId);
+    if (!vehicle || !vehicle.vendor || vehicle.vendor.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied. That vehicle is not yours.' });
+    }
+    if (!vehicle.deviceId) {
+      return res.status(400).json({ message: 'This vehicle has no device assigned.' });
+    }
+
+    const device = await Device.findOne({ deviceName: vehicle.deviceId, vendor: req.user.id });
+
+    vehicle.deviceId = undefined;
+    vehicle.device = null;
+    await vehicle.save();
+
+    if (device) {
+      device.isAssigned = false;
+      device.vehicle = null;
+      await device.save();
+    }
+
+    res.json({ message: 'Device removed from vehicle', vehicle });
+  } catch (err) {
+    res.status(500).json({ message: 'Error removing device', error: err.message });
+  }
+});
+
+// ✅ Add a vehicle and (optionally) assign a device at the same time. A
+// vehicle may now be created with no device — one can be attached later
+// via /assign-device.
 router.post('/add-vehicle', async (req, res) => {
   const { _id, vehicleNumber, brand, capacity, deviceId, vendorId } = req.body;
 
-  if (!_id || !vehicleNumber || !brand || !capacity || !deviceId || !vendorId) {
-    return res.status(400).json({ message: 'All fields are required' });
+  if (!_id || !vehicleNumber || !brand || !capacity || !vendorId) {
+    return res.status(400).json({ message: 'Vehicle ID, number, brand, capacity and vendorId are required' });
   }
   if (vendorId !== req.user.id) {
     return res.status(403).json({ message: 'Access denied. Not your account.' });
@@ -179,25 +307,113 @@ router.post('/add-vehicle', async (req, res) => {
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) return res.status(404).json({ message: 'Vendor not found' });
 
-    // Ensure device is available
-    const device = await Device.findOne({ deviceName: deviceId, isAssigned: false });
-    if (!device) return res.status(400).json({ message: 'Device is already assigned or not found' });
+    let device = null;
+    if (deviceId) {
+      // Ensure device exists, belongs to this vendor, and is available
+      device = await Device.findOne({ deviceName: deviceId, vendor: vendorId, isAssigned: false });
+      if (!device) return res.status(400).json({ message: 'Device not found, not yours, or already assigned' });
+    }
 
     // Create vehicle
-    const vehicle = new Vehicle({ _id, vehicleNumber, brand, capacity, deviceId, vendor: vendorId, device: device._id });
+    const vehicle = new Vehicle({
+      _id, vehicleNumber, brand, capacity,
+      vendor: vendorId,
+      ...(device ? { deviceId: device.deviceName, device: device._id } : {}),
+    });
     await vehicle.save();
 
     // Update vendor and device
     vendor.vehicles.push(vehicle._id);
     await vendor.save();
 
-    device.isAssigned = true;
-    device.vehicle = vehicle._id;
-    await device.save();
+    if (device) {
+      device.isAssigned = true;
+      device.vehicle = vehicle._id;
+      await device.save();
+    }
 
-    res.status(201).json({ message: 'Vehicle added and assigned successfully' });
+    res.status(201).json({ message: 'Vehicle added successfully' });
   } catch (err) {
     res.status(500).json({ message: 'Error adding vehicle', error: err.message });
+  }
+});
+
+// Standing Driver -> Vehicle assignment. Both must belong to the
+// authenticated vendor. If either side already has a reciprocal
+// assignment, it is cleared first so the 1:1 invariant (one driver per
+// vehicle, one vehicle per driver) never breaks — done as a single
+// sequence of ownership-checked writes, not a silent cross-vendor move.
+router.post('/assign-driver-vehicle', async (req, res) => {
+  const { driverId, vehicleId } = req.body;
+
+  if (!driverId || !vehicleId) {
+    return res.status(400).json({ message: 'driverId and vehicleId are required' });
+  }
+
+  try {
+    const owningVendor = await Vendor.findById(req.user.id).select('drivers vehicles');
+    if (!owningVendor) return res.status(404).json({ message: 'Vendor not found' });
+    if (!owningVendor.drivers.some((d) => d.toString() === driverId)) {
+      return res.status(403).json({ message: 'That driver is not one of your drivers.' });
+    }
+    if (!owningVendor.vehicles.some((v) => v.toString() === String(vehicleId))) {
+      return res.status(403).json({ message: 'That vehicle is not one of your vehicles.' });
+    }
+
+    const [driver, vehicle] = await Promise.all([
+      Driver.findById(driverId),
+      Vehicle.findById(vehicleId),
+    ]);
+    if (!driver) return res.status(404).json({ message: 'Driver not found' });
+    if (!vehicle) return res.status(404).json({ message: 'Vehicle not found' });
+
+    // Clear any existing reciprocal assignments first.
+    if (driver.vehicle && driver.vehicle !== vehicle._id) {
+      await Vehicle.updateOne({ _id: driver.vehicle, driver: driver._id }, { $set: { driver: null } });
+    }
+    if (vehicle.driver && vehicle.driver.toString() !== driverId) {
+      await Driver.updateOne({ _id: vehicle.driver, vehicle: vehicle._id }, { $set: { vehicle: null } });
+    }
+
+    driver.vehicle = vehicle._id;
+    vehicle.driver = driver._id;
+    await Promise.all([driver.save(), vehicle.save()]);
+
+    res.json({ message: 'Driver assigned to vehicle', driver, vehicle });
+  } catch (err) {
+    res.status(500).json({ message: 'Error assigning driver to vehicle', error: err.message });
+  }
+});
+
+// Clear a driver's standing vehicle assignment (and the vehicle's
+// reciprocal driver reference). Device stays exactly where it is — it's
+// attached to the Vehicle, not the Driver.
+router.post('/unassign-driver-vehicle', async (req, res) => {
+  const { driverId } = req.body;
+
+  if (!driverId) {
+    return res.status(400).json({ message: 'driverId is required' });
+  }
+
+  try {
+    const owningVendor = await Vendor.findById(req.user.id).select('drivers');
+    if (!owningVendor) return res.status(404).json({ message: 'Vendor not found' });
+    if (!owningVendor.drivers.some((d) => d.toString() === driverId)) {
+      return res.status(403).json({ message: 'That driver is not one of your drivers.' });
+    }
+
+    const driver = await Driver.findById(driverId);
+    if (!driver) return res.status(404).json({ message: 'Driver not found' });
+
+    if (driver.vehicle) {
+      await Vehicle.updateOne({ _id: driver.vehicle, driver: driver._id }, { $set: { driver: null } });
+    }
+    driver.vehicle = null;
+    await driver.save();
+
+    res.json({ message: 'Driver unassigned from vehicle', driver });
+  } catch (err) {
+    res.status(500).json({ message: 'Error unassigning driver', error: err.message });
   }
 });
 

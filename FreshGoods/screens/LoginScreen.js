@@ -21,6 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './services/api';
 import { registerForPushNotificationsAsync } from './utils/notification';
 import { colors, spacing, typography, borderRadius } from './theme';
+import { useAuth } from '../navigation/AuthContext';
 
 const backgroundImage = require('../assets/image1.jpg');
 
@@ -34,6 +35,7 @@ export default function LoginScreen({ navigation, route }) {
   // Get pre-selected role from navigation params
   const selectedRole = route.params?.selectedRole || 'Customer';
   const roleConfig = ROLE_CONFIG[selectedRole];
+  const { signIn } = useAuth();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -85,12 +87,8 @@ export default function LoginScreen({ navigation, route }) {
         console.warn('Push token registration failed:', pushErr.message);
       }
 
-      // Navigate to role-specific home
-      switch (selectedRole) {
-        case 'Vendor': navigation.replace('VendorHome'); break;
-        case 'Driver': navigation.replace('DriverHome'); break;
-        default: navigation.replace('CustomerHome'); break;
-      }
+      // Swap the mounted navigator tree to the role-specific one
+      signIn(selectedRole);
 
     } catch (err) {
       console.error('Login error:', err.message);

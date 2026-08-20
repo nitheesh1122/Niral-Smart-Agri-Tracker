@@ -23,6 +23,10 @@ const Vehicle = require('../models/VehicleModel');
 const Device = require('../models/deviceModel');
 const Vendor = require('../models/vendorModel');
 const ShipmentCondition = require('../models/shipmentConditionModel');
+// Nothing else in the require graph loads this — Shipment.product's `ref:
+// 'Product'` is never resolvable by .populate('product') below unless the
+// schema has actually been registered with Mongoose somewhere first.
+require('../models/productModel');
 const logShipmentEvent = require('../utils/logShipmentEvent');
 const { createNotification } = require('./notificationService');
 const {

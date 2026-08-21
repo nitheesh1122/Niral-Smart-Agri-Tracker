@@ -29,6 +29,8 @@ const ThemedInput = ({
     disabled = false,
     style,
     inputStyle,
+    onFocus,
+    onBlur,
 }) => {
     const [isFocused, setIsFocused] = useState(false);
     const [isPasswordVisible, setIsPasswordVisible] = useState(!secureTextEntry);
@@ -59,8 +61,15 @@ const ThemedInput = ({
                     multiline={multiline}
                     numberOfLines={numberOfLines}
                     editable={!disabled}
-                    onFocus={() => setIsFocused(true)}
-                    onBlur={() => setIsFocused(false)}
+                    onFocus={() => {
+                        setIsFocused(true);
+                        onFocus?.();
+                    }}
+                    onBlur={() => {
+                        setIsFocused(false);
+                        onBlur?.();
+                    }}
+                    disableFullscreenUI
                 />
 
                 {secureTextEntry && (

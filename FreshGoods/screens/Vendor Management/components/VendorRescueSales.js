@@ -253,7 +253,19 @@ const RescueSaleDetailModal = ({ saleId, onClose, onChanged }) => {
   );
 };
 
-const VendorRescueSales = () => {
+const ServiceRequestsEntry = ({ onPress }) => (
+  <TouchableOpacity activeOpacity={0.85} onPress={onPress}>
+    <ThemedCard variant="elevated" style={styles.serviceRequestsCard}>
+      <View style={styles.serviceRequestsRow}>
+        <Text style={styles.serviceRequestsIcon}>📋</Text>
+        <Text style={styles.serviceRequestsText}>Service Requests</Text>
+        <Text style={styles.serviceRequestsChevron}>›</Text>
+      </View>
+    </ThemedCard>
+  </TouchableOpacity>
+);
+
+const VendorRescueSales = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sales, setSales] = useState([]);
@@ -297,6 +309,7 @@ const VendorRescueSales = () => {
         keyExtractor={(item) => item._id}
         renderItem={({ item }) => <SaleCard sale={item} onPress={() => setSelectedSaleId(item._id)} />}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={<ServiceRequestsEntry onPress={() => navigation.navigate('ServiceRequests')} />}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
@@ -326,6 +339,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background.primary },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { padding: spacing.md, paddingBottom: spacing.xxl },
+  serviceRequestsCard: { marginBottom: spacing.md },
+  serviceRequestsRow: { flexDirection: 'row', alignItems: 'center' },
+  serviceRequestsIcon: { fontSize: 20, marginRight: spacing.md },
+  serviceRequestsText: { ...typography.bodyMedium, color: colors.text.primary, flex: 1 },
+  serviceRequestsChevron: { fontSize: 24, color: colors.text.muted },
   card: { marginBottom: spacing.md },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs },
   itemName: { ...typography.h4, color: colors.text.primary, flex: 1 },

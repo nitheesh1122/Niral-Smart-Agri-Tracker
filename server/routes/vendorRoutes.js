@@ -49,6 +49,24 @@ router.get('/all', async (req, res) => {
   }
 });
 
+// GET /api/vendor/profile/:vendorId — the vendor's own account record.
+// Mirrors GET /api/driver/profile/:driverId and GET
+// /api/customer/profile/:customerId — same ownership check, same
+// password-stripped shape.
+router.get('/profile/:vendorId', async (req, res) => {
+  try {
+    if (req.params.vendorId !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. Not your account.' });
+    }
+    const vendor = await Vendor.findById(req.params.vendorId).select('-password');
+    if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+    res.json(vendor);
+  } catch (err) {
+    console.error('Error fetching vendor profile:', err);
+    res.status(500).json({ error: 'Failed to fetch vendor profile' });
+  }
+});
+
 // POST /api/vendor/drivers — create a new Driver account owned by the
 // calling vendor. This is the ONLY way a Driver account is created.
 router.post('/drivers', async (req, res) => {

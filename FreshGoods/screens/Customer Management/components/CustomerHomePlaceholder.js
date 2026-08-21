@@ -35,26 +35,11 @@ import ThemedButton from '../../components/ThemedButton';
 import {
   SlideInView,
   FadeInView,
-  AnimatedPressable,
 } from '../../components/AnimatedComponents';
 import LocationPickerModal from './LocationPickerModal';
 
 const ACTIVE_STATUSES = ['ASSIGNED', 'ACCEPTED', 'IN_TRANSIT'];
 const RECENT_STATUSES = ['COMPLETED', 'CANCELLED', 'REJECTED'];
-
-// ═══════════════════════════════════════════════════════════════════
-// QUICK ACTION BUTTON
-// ═══════════════════════════════════════════════════════════════════
-const QuickActionButton = ({ icon, label, color, onPress, delay = 0 }) => (
-  <SlideInView delay={delay}>
-    <AnimatedPressable onPress={onPress} style={styles.actionButton}>
-      <View style={[styles.actionIconContainer, { backgroundColor: color + '15' }]}>
-        <Text style={styles.actionIcon}>{icon}</Text>
-      </View>
-      <Text style={styles.actionLabel}>{label}</Text>
-    </AnimatedPressable>
-  </SlideInView>
-);
 
 // ═══════════════════════════════════════════════════════════════════
 // ACTIVE SHIPMENT CARD
@@ -313,41 +298,6 @@ const CustomerDashboard = ({ onNavigate }) => {
           </FadeInView>
         )}
 
-        {/* Quick Actions */}
-        <FadeInView delay={150} style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionsGrid}>
-            <QuickActionButton
-              icon="🛒"
-              label="Browse Goods"
-              color={colors.primary}
-              onPress={() => onNavigate?.('viewGoods')}
-              delay={0}
-            />
-            <QuickActionButton
-              icon="📦"
-              label="My Shipments"
-              color={colors.secondary}
-              onPress={() => onNavigate?.('myShipments')}
-              delay={50}
-            />
-            <QuickActionButton
-              icon="💬"
-              label="Chat"
-              color={colors.accent}
-              onPress={() => onNavigate?.('chat')}
-              delay={100}
-            />
-            <QuickActionButton
-              icon="👤"
-              label="Profile"
-              color={colors.tertiary}
-              onPress={() => onNavigate?.('profile')}
-              delay={150}
-            />
-          </View>
-        </FadeInView>
-
         {/* My Active Shipments */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -546,30 +496,6 @@ const styles = StyleSheet.create({
     ...typography.bodySmall,
     color: colors.primary,
     fontWeight: '600',
-  },
-  actionsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  actionButton: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  actionIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  actionIcon: {
-    fontSize: 24,
-  },
-  actionLabel: {
-    ...typography.caption,
-    color: colors.text.secondary,
-    textAlign: 'center',
   },
   deliveryCard: {
     marginBottom: spacing.md,

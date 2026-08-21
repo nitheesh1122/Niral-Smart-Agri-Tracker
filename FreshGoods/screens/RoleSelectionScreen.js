@@ -1,258 +1,177 @@
 /**
  * RoleSelectionScreen - User selects their role before login/signup
- * Beautiful card-based UI with animated role cards
+ * Status-driven card UI: one role card per option, consistent with the rest
+ * of the app's card system.
  */
-import React, { useState } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    ImageBackground,
-    Dimensions,
-    TouchableOpacity,
-    Animated,
-} from 'react-native';
-import { BlurView } from 'expo-blur';
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { colors, spacing, typography, borderRadius, shadows } from './theme';
+import { colors, spacing, typography, borderRadius } from './theme';
+import ThemedCard from './components/ThemedCard';
+import { SlideInView } from './components/AnimatedComponents';
 
-const backgroundImage = require('../assets/image1.jpg');
-
+// Matches the role→color mapping already used elsewhere in the app (see
+// SidebarMenu.js's getRoleBadgeColor) rather than introducing a separate
+// palette just for these screens.
 const ROLES = [
     {
         id: 'Customer',
         icon: '🛒',
         title: 'Customer',
-        description: 'Shop and order products',
-        color: '#00CEC9',
+        loginDescription: 'Shop and order products',
+        signupDescription: 'Browse and purchase fresh goods',
+        color: colors.accent,
     },
     {
         id: 'Vendor',
         icon: '🏪',
         title: 'Vendor',
-        description: 'Manage your business',
-        color: '#0984E3',
+        loginDescription: 'Manage your business',
+        signupDescription: 'Sell and manage goods',
+        color: colors.primary,
     },
     {
         id: 'Driver',
         icon: '🚚',
         title: 'Driver',
-        description: 'Deliver goods',
-        color: '#6C5CE7',
+        loginDescription: 'Deliver goods',
+        signupDescription: 'Deliver goods',
+        color: colors.tertiary,
     },
 ];
 
-const RoleCard = ({ role, onPress, isSelected }) => {
-    const scaleAnim = React.useRef(new Animated.Value(1)).current;
-
-    const handlePressIn = () => {
-        Animated.spring(scaleAnim, {
-            toValue: 0.95,
-            useNativeDriver: true,
-        }).start();
-    };
-
-    const handlePressOut = () => {
-        Animated.spring(scaleAnim, {
-            toValue: 1,
-            useNativeDriver: true,
-        }).start();
-    };
-
-    return (
-        <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={onPress}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-        >
-            <Animated.View
-                style={[
-                    styles.roleCard,
-                    {
-                        transform: [{ scale: scaleAnim }],
-                        borderColor: isSelected ? role.color : 'rgba(255,255,255,0.2)',
-                        borderWidth: isSelected ? 2 : 1,
-                    },
-                ]}
-            >
-                <View style={[styles.iconContainer, { backgroundColor: role.color + '20' }]}>
-                    <Text style={styles.roleIcon}>{role.icon}</Text>
-                </View>
-                <View style={styles.roleInfo}>
-                    <Text style={styles.roleTitle}>{role.title}</Text>
-                    <Text style={styles.roleDescription}>{role.description}</Text>
-                </View>
-                <View style={[styles.arrow, isSelected && { backgroundColor: role.color }]}>
-                    <Text style={styles.arrowText}>→</Text>
-                </View>
-            </Animated.View>
-        </TouchableOpacity>
-    );
-};
+const RoleCard = ({ role, description, onPress, delay }) => (
+    <SlideInView delay={delay}>
+        <ThemedCard variant="elevated" style={styles.roleCard} onPress={onPress}>
+            <View style={[styles.iconContainer, { backgroundColor: role.color + '18' }]}>
+                <Text style={styles.roleIcon}>{role.icon}</Text>
+            </View>
+            <View style={styles.roleInfo}>
+                <Text style={styles.roleTitle}>{role.title}</Text>
+                <Text style={styles.roleDescription}>{description}</Text>
+            </View>
+            <Text style={[styles.chevron, { color: role.color }]}>›</Text>
+        </ThemedCard>
+    </SlideInView>
+);
 
 export default function RoleSelectionScreen({ navigation, route }) {
     const { mode } = route.params || { mode: 'login' }; // 'login' or 'signup'
-    const [selectedRole, setSelectedRole] = useState(null);
+    const isSignup = mode === 'signup';
 
     // Driver accounts are created by a Vendor (Vendor > Manage Drivers > Add
     // Driver), never through public self-registration — so Driver is a valid
     // role to log in as, but not one to sign up as.
-    const availableRoles = mode === 'signup' ? ROLES.filter((r) => r.id !== 'Driver') : ROLES;
+    const availableRoles = isSignup ? ROLES.filter((r) => r.id !== 'Driver') : ROLES;
 
     const handleRoleSelect = (role) => {
-        setSelectedRole(role.id);
-
-        // Navigate to login or signup with selected role
-        setTimeout(() => {
-            if (mode === 'signup') {
-                navigation.navigate('Signup', { selectedRole: role.id });
-            } else {
-                navigation.navigate('Login', { selectedRole: role.id });
-            }
-        }, 200);
+        if (isSignup) {
+            navigation.navigate('Signup', { selectedRole: role.id });
+        } else {
+            navigation.navigate('Login', { selectedRole: role.id });
+        }
     };
 
     return (
         <View style={styles.container}>
-            <StatusBar style="light" backgroundColor="#000" translucent={false} />
+            <StatusBar style="dark" backgroundColor={colors.background.primary} />
 
-            <ImageBackground source={backgroundImage} style={styles.background} resizeMode="cover">
-                <BlurView intensity={85} tint="dark" style={styles.blurOverlay}>
-                    <View style={styles.content}>
-                        {/* Header */}
-                        <View style={styles.header}>
-                            <Text style={styles.title}>
-                                {mode === 'signup' ? 'Join as' : 'Sign in as'}
-                            </Text>
-                            <Text style={styles.subtitle}>
-                                Select your role to continue
-                            </Text>
-                        </View>
+            <ScrollView
+                contentContainerStyle={styles.scrollContent}
+                showsVerticalScrollIndicator={false}
+            >
+                <View style={styles.header}>
+                    <Text style={styles.title}>{isSignup ? 'Join FreshGoods' : 'Sign in as'}</Text>
+                    <Text style={styles.subtitle}>
+                        {isSignup ? 'Choose how you want to use FreshGoods' : 'Select your role to continue'}
+                    </Text>
+                </View>
 
-                        {/* Role Cards */}
-                        <View style={styles.rolesContainer}>
-                            {availableRoles.map((role) => (
-                                <RoleCard
-                                    key={role.id}
-                                    role={role}
-                                    isSelected={selectedRole === role.id}
-                                    onPress={() => handleRoleSelect(role)}
-                                />
-                            ))}
-                        </View>
+                <View style={styles.rolesContainer}>
+                    {availableRoles.map((role, index) => (
+                        <RoleCard
+                            key={role.id}
+                            role={role}
+                            description={isSignup ? role.signupDescription : role.loginDescription}
+                            onPress={() => handleRoleSelect(role)}
+                            delay={index * 60}
+                        />
+                    ))}
+                </View>
 
-                        {mode === 'signup' && (
-                            <Text style={styles.driverNote}>
-                                Driver accounts are created by a Vendor — ask yours to add you.
-                            </Text>
-                        )}
-
-                        {/* Back Button */}
-                        <TouchableOpacity
-                            style={styles.backButton}
-                            onPress={() => navigation.goBack()}
-                        >
-                            <Text style={styles.backButtonText}>← Back to Home</Text>
-                        </TouchableOpacity>
-                    </View>
-                </BlurView>
-            </ImageBackground>
+                <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+                    <Text style={styles.backButtonText}>← Back to Home</Text>
+                </TouchableOpacity>
+            </ScrollView>
         </View>
     );
 }
 
-const { width, height } = Dimensions.get('window');
-
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#000',
+        backgroundColor: colors.background.primary,
     },
-    background: {
-        flex: 1,
-        width,
-        height,
-    },
-    blurOverlay: {
-        flex: 1,
+    scrollContent: {
+        flexGrow: 1,
         justifyContent: 'center',
         paddingHorizontal: spacing.lg,
-    },
-    content: {
-        flex: 1,
-        justifyContent: 'center',
-        paddingVertical: spacing.xl,
+        paddingVertical: spacing.xxl,
     },
     header: {
-        marginBottom: spacing.xl,
+        marginBottom: spacing.lg,
         alignItems: 'center',
     },
     title: {
-        fontSize: 36,
-        fontWeight: '700',
+        ...typography.h2,
         color: colors.text.primary,
-        marginBottom: spacing.xs,
+        marginBottom: spacing.xxs,
+        textAlign: 'center',
     },
     subtitle: {
         ...typography.body,
         color: colors.text.muted,
+        textAlign: 'center',
     },
     rolesContainer: {
-        gap: spacing.md,
+        width: '100%',
+        maxWidth: 420,
+        alignSelf: 'center',
     },
     roleCard: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        borderRadius: borderRadius.lg,
-        padding: spacing.md,
-        marginBottom: spacing.sm,
+        marginBottom: spacing.md,
     },
     iconContainer: {
-        width: 56,
-        height: 56,
-        borderRadius: 16,
+        width: 52,
+        height: 52,
+        borderRadius: borderRadius.lg,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: spacing.md,
     },
     roleIcon: {
-        fontSize: 28,
+        fontSize: 24,
     },
     roleInfo: {
         flex: 1,
     },
     roleTitle: {
-        ...typography.h3,
-        color: colors.text.light,
+        ...typography.h4,
+        color: colors.text.primary,
         marginBottom: 2,
     },
     roleDescription: {
         ...typography.bodySmall,
         color: colors.text.muted,
     },
-    arrow: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    arrowText: {
-        fontSize: 18,
-        color: colors.text.light,
-        fontWeight: 'bold',
-    },
-    driverNote: {
-        ...typography.bodySmall,
-        color: colors.text.muted,
-        textAlign: 'center',
-        marginTop: spacing.lg,
+    chevron: {
+        fontSize: 26,
+        fontWeight: '600',
     },
     backButton: {
-        marginTop: spacing.xl,
+        marginTop: spacing.lg,
         alignItems: 'center',
         paddingVertical: spacing.md,
     },

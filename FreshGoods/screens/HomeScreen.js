@@ -1,153 +1,111 @@
 import React from 'react';
-import { View, Text, StyleSheet, ImageBackground, Dimensions, TouchableOpacity } from 'react-native';
-import { Button } from 'react-native-paper';
-import { BlurView } from 'expo-blur';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { colors, spacing, typography, borderRadius } from './theme';
-
-const backgroundImage = require('../assets/image1.jpg');
+import ThemedButton from './components/ThemedButton';
+import { FadeInView } from './components/AnimatedComponents';
 
 export default function HomeScreen({ navigation }) {
     return (
         <View style={styles.container}>
-            <StatusBar style="light" backgroundColor="#000" translucent={false} />
+            <StatusBar style="dark" backgroundColor={colors.background.primary} />
 
-            <ImageBackground
-                source={backgroundImage}
-                style={styles.background}
-                resizeMode="cover"
+            <ScrollView
+                contentContainerStyle={styles.scrollContent}
+                showsVerticalScrollIndicator={false}
             >
-                <BlurView intensity={80} tint="dark" style={styles.blurOverlay}>
-                    <View style={styles.card}>
-                        {/* Logo/Brand Section */}
-                        <View style={styles.logoContainer}>
-                            <Text style={styles.logoIcon}>🍃</Text>
-                        </View>
-
-                        <Text style={styles.title}>PeriSense</Text>
-                        <Text style={styles.subtitle}>Smart Monitoring for Perishables</Text>
-
-                        <Text style={styles.description}>
-                            PeriSense uses IoT and AI to track temperature, humidity and gas emissions during storage and transportation.
-                            It empowers cold-chain logistics with real-time alerts, reducing waste and preserving food quality.
-                        </Text>
-
-                        {/* Action Buttons */}
-                        <View style={styles.buttons}>
-                            <TouchableOpacity
-                                style={styles.primaryButton}
-                                onPress={() => navigation.navigate('RoleSelection', { mode: 'login' })}
-                                activeOpacity={0.8}
-                            >
-                                <Text style={styles.primaryButtonText}>Sign In</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={styles.secondaryButton}
-                                onPress={() => navigation.navigate('RoleSelection', { mode: 'signup' })}
-                                activeOpacity={0.8}
-                            >
-                                <Text style={styles.secondaryButtonText}>Create Account</Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        {/* Footer */}
-                        <Text style={styles.footer}>
-                            By continuing, you agree to our Terms & Privacy Policy
-                        </Text>
+                <FadeInView duration={400} style={styles.content}>
+                    <View style={styles.logoContainer}>
+                        <Text style={styles.logoIcon}>🍃</Text>
                     </View>
-                </BlurView>
-            </ImageBackground>
+
+                    <Text style={styles.title}>FreshGoods</Text>
+                    <Text style={styles.subtitle}>Fresh food. Smarter logistics.</Text>
+
+                    <Text style={styles.description}>
+                        Real-time cold-chain tracking that keeps vendors, drivers, and
+                        customers in sync from pickup to delivery.
+                    </Text>
+
+                    <View style={styles.buttons}>
+                        <ThemedButton
+                            title="Sign In"
+                            variant="gradient"
+                            size="large"
+                            fullWidth
+                            onPress={() => navigation.navigate('RoleSelection', { mode: 'login' })}
+                        />
+                        <ThemedButton
+                            title="Create Account"
+                            variant="outline"
+                            size="large"
+                            fullWidth
+                            style={styles.secondaryButton}
+                            onPress={() => navigation.navigate('RoleSelection', { mode: 'signup' })}
+                        />
+                    </View>
+
+                    <Text style={styles.footer}>
+                        By continuing, you agree to our Terms & Privacy Policy
+                    </Text>
+                </FadeInView>
+            </ScrollView>
         </View>
     );
 }
 
-const { width, height } = Dimensions.get('window');
-
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#000',
+        backgroundColor: colors.background.primary,
     },
-    background: {
-        flex: 1,
-        width,
-        height,
-    },
-    blurOverlay: {
-        flex: 1,
+    scrollContent: {
+        flexGrow: 1,
         justifyContent: 'center',
-        alignItems: 'center',
         paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.xxl,
     },
-    card: {
-        backgroundColor: 'rgba(20, 20, 20, 0.5)',
-        borderRadius: borderRadius.xl,
-        padding: spacing.xl,
+    content: {
         alignItems: 'center',
         width: '100%',
-        maxWidth: 380,
-        borderColor: 'rgba(255,255,255,0.12)',
-        borderWidth: 1,
+        maxWidth: 400,
+        alignSelf: 'center',
     },
     logoContainer: {
-        width: 80,
-        height: 80,
-        borderRadius: 24,
-        backgroundColor: 'rgba(0, 206, 201, 0.15)',
+        width: 72,
+        height: 72,
+        borderRadius: borderRadius.xl,
+        backgroundColor: colors.successBg,
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: spacing.md,
     },
     logoIcon: {
-        fontSize: 40,
+        fontSize: 36,
     },
     title: {
-        fontSize: 36,
-        fontWeight: '700',
+        ...typography.h1,
         color: colors.text.primary,
-        marginBottom: spacing.xs,
-        letterSpacing: 1,
+        marginBottom: spacing.xxs,
     },
     subtitle: {
-        ...typography.body,
-        color: colors.secondary,
-        marginBottom: spacing.lg,
-        fontWeight: '500',
+        ...typography.bodyMedium,
+        color: colors.primary,
+        marginBottom: spacing.md,
     },
     description: {
         ...typography.bodySmall,
         color: colors.text.muted,
         textAlign: 'center',
         marginBottom: spacing.xl,
-        lineHeight: 22,
+        lineHeight: 20,
     },
     buttons: {
         width: '100%',
         gap: spacing.sm,
     },
-    primaryButton: {
-        backgroundColor: colors.secondary,
-        paddingVertical: spacing.md,
-        borderRadius: borderRadius.round,
-        alignItems: 'center',
-        marginBottom: spacing.sm,
-    },
-    primaryButtonText: {
-        ...typography.button,
-        color: '#fff',
-    },
     secondaryButton: {
-        backgroundColor: 'transparent',
-        paddingVertical: spacing.md,
-        borderRadius: borderRadius.round,
-        alignItems: 'center',
-        borderWidth: 1.5,
-        borderColor: colors.secondary,
-    },
-    secondaryButtonText: {
-        ...typography.button,
-        color: colors.secondary,
+        marginTop: spacing.xs,
     },
     footer: {
         ...typography.caption,

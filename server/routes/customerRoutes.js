@@ -140,7 +140,12 @@ router.get('/exports/available', async (req, res) => {
     try {
         const { state, district } = req.query;
 
-        let query = { status: STATUSES.IN_TRANSIT };
+        // Browse Goods shows a shipment only when it has an active (PUBLISHED,
+        // not-yet-expired) Rescue Sale posted against it — being IN_TRANSIT
+        // alone is not enough. See rescueService.listActiveRescueShipmentIds.
+        const activeRescueShipmentIds = await rescueService.listActiveRescueShipmentIds();
+
+        let query = { status: STATUSES.IN_TRANSIT, _id: { $in: activeRescueShipmentIds } };
 
         // Filter by location if provided
         if (state || district) {

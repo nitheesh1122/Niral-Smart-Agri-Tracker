@@ -251,6 +251,28 @@ async function notifyEligibleCustomers(rescueSale, eligible) {
   await rescueSale.save();
 }
 
+// ── Active-listing lookup (Browse Goods filtering) ─────────────────────
+
+/**
+ * Shipment IDs currently backed by an active (PUBLISHED, not-yet-expired)
+ * Rescue Sale — the "does this shipment have a live rescue opportunity"
+ * check, with no customer-specific opt-in/location/radius filtering (unlike
+ * listPublishedRescueSalesForCustomer above, which is scoped to what one
+ * particular customer is eligible to see). Used by the general-purpose
+ * Browse Goods listing, which must not require rescueOptIn/location to see
+ * that a rescue sale exists at all. Reuses the same lazy-expiry check
+ * (expireIfNeeded) as every other rescue-sale read path.
+ */
+async function listActiveRescueShipmentIds() {
+  const candidates = await RescueSale.find({ status: 'PUBLISHED' }).select('shipment status validUntil');
+  const activeShipmentIds = [];
+  for (const sale of candidates) {
+    await expireIfNeeded(sale);
+    if (sale.status === 'PUBLISHED') activeShipmentIds.push(sale.shipment);
+  }
+  return activeShipmentIds;
+}
+
 // ── Customer discovery (Phase 12, 22) ──────────────────────────────────
 
 async function listPublishedRescueSalesForCustomer(customerId) {
@@ -563,6 +585,7 @@ module.exports = {
   resolveVehicleLocation,
   createRescueSale,
   findEligibleCustomers,
+  listActiveRescueShipmentIds,
   listPublishedRescueSalesForCustomer,
   getRescueSaleForCustomer,
   expressInterest,

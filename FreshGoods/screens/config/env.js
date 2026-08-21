@@ -6,23 +6,18 @@
  * React Native/Expo flag that is true in a development build/Metro bundle
  * and false in a release build.
  *
- * DEVELOPMENT: uses the LAN IP configured in ipadd.js — update that file
- * to your machine's current IP so a physical device on the same network
- * can reach your local backend.
- *
- * PRODUCTION: intentionally left unset. Fill this in with the real
- * deployed backend URL when one exists — do not invent a placeholder
- * production URL.
+ * Both development and production point at the hosted backend configured
+ * in ipadd.js (currently the Render deployment), so no LAN IP setup is
+ * needed to reach the API.
  */
 import { IPADD } from '../ipadd';
 
 const ENV = {
     development: {
-        apiBaseUrl: `http://${IPADD}:5000`,
+        apiBaseUrl: IPADD,
     },
     production: {
-        // TODO: set to the deployed backend URL before creating a production build.
-        apiBaseUrl: `http://${IPADD}:5000`,
+        apiBaseUrl: IPADD,
     },
 };
 

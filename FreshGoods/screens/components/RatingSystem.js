@@ -134,7 +134,7 @@ const RatingModal = ({
         setSubmitting(true);
         try {
             // TODO: Replace with actual API endpoint
-            // await axios.post(`http://${IPADD}:5000/api/ratings`, {
+            // await axios.post(`${IPADD}/api/ratings`, {
             //   targetId,
             //   targetType,
             //   exportId,

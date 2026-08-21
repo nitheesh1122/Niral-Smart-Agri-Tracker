@@ -1,6 +1,4 @@
-// Update this to the development machine's current LAN IP before each
-// physical-device test session — it changes whenever the machine
-// reconnects to Wi-Fi/hotspot. See `ipconfig` (Windows) / `ifconfig`
-// (Mac/Linux) for the current value.
-export const IPADD = "10.244.56.173";
+// Hosted backend (Render). Used for both development and production so
+// physical devices/emulators can reach the API without needing a LAN IP.
+export const IPADD = "https://niral-smart-agri-tracker.onrender.com";
 
